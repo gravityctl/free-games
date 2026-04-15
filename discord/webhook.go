@@ -44,6 +44,7 @@ type embedFooter struct {
 const (
 	colorEpic  = 0x0078f2
 	colorSteam = 0x1b2838
+	colorTwitch = 0x9146ff
 )
 
 func Send(webhookURL string, games []common.Game) error {
@@ -54,8 +55,11 @@ func Send(webhookURL string, games []common.Game) error {
 	var embeds []embed
 	for _, game := range games {
 		color := colorEpic
-		if game.Provider == "steam" {
+		switch game.Provider {
+		case "steam":
 			color = colorSteam
+		case "twitch":
+			color = colorTwitch
 		}
 
 		e := embed{

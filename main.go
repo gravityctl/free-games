@@ -5,11 +5,13 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/gravityctl/free-games/common"
 	"github.com/gravityctl/free-games/discord"
 	"github.com/gravityctl/free-games/epic"
 	"github.com/gravityctl/free-games/steam"
+	"github.com/gravityctl/free-games/twitch"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
@@ -22,12 +24,23 @@ func main() {
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
 	enableSteam := flag.Bool("steam", envOrBool("ENABLE_STEAM", false), "Enable Steam scraper")
+	twitchOwnersStr := flag.String("twitch-owners", envOr("TWITCH_OWNERS", ""), "Comma-separated Twitch drop owners to include (empty = all disabled)")
 	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", "0 0 0 * * 4"), "Cron schedule (default: every Thursday at midnight)")
 	runOnce := flag.Bool("once", false, "Run once and exit (no cron)")
 	flag.Parse()
 
 	if *discordWebhook == "" {
 		log.Fatal("DISCORD_WEBHOOK_URL is required")
+	}
+
+	// Build Twitch owner lookup map
+	var twitchEnabled map[string]bool
+	if strings.TrimSpace(*twitchOwnersStr) != "" {
+		owners := strings.Split(*twitchOwnersStr, ",")
+		twitchEnabled = make(map[string]bool)
+		for _, o := range owners {
+			twitchEnabled[strings.TrimSpace(o)] = true
+		}
 	}
 
 	runner := func() {
@@ -52,6 +65,18 @@ func main() {
 			} else {
 				log.Printf("Found %d Steam free game(s)", len(steamGames))
 				allGames = append(allGames, steamGames...)
+			}
+		}
+
+		// Fetch Twitch drops if owners configured
+		if len(twitchEnabled) > 0 {
+			twitchClient := twitch.NewClient(twitchEnabled)
+			twitchGames, err := twitchClient.FetchDrops()
+			if err != nil {
+				log.Printf("Error fetching Twitch drops: %v", err)
+			} else {
+				log.Printf("Found %d Twitch free game(s)", len(twitchGames))
+				allGames = append(allGames, twitchGames...)
 			}
 		}
 
