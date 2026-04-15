@@ -63,7 +63,7 @@ func main() {
 
 	runner := func(provider string) func() {
 		return func() {
-			var newGames []notification.SentGame
+			var allGames []common.Game
 
 			if provider == "epic" {
 				epicClient := epic.NewClient(*country, *locale, *includeUpcoming)
@@ -72,16 +72,7 @@ func main() {
 					log.Printf("[epic] error fetching: %v", err)
 				} else {
 					log.Printf("[epic] found %d free game(s)", len(epicGames))
-					for _, g := range epicGames {
-						startDate, _ := g.StartDate.MarshalText()
-						endDate, _ := g.EndDate.MarshalText()
-						newGames = append(newGames, notification.SentGame{
-							Provider:  "epic",
-							Title:     g.Title,
-							StartDate: string(startDate),
-							EndDate:   string(endDate),
-						})
-					}
+					allGames = append(allGames, epicGames...)
 				}
 			}
 
@@ -92,16 +83,7 @@ func main() {
 					log.Printf("[steam] error fetching: %v", err)
 				} else {
 					log.Printf("[steam] found %d free game(s)", len(steamGames))
-					for _, g := range steamGames {
-						startDate, _ := g.StartDate.MarshalText()
-						endDate, _ := g.EndDate.MarshalText()
-						newGames = append(newGames, notification.SentGame{
-							Provider:  "steam",
-							Title:     g.Title,
-							StartDate: string(startDate),
-							EndDate:   string(endDate),
-						})
-					}
+					allGames = append(allGames, steamGames...)
 				}
 			}
 
@@ -112,51 +94,33 @@ func main() {
 					log.Printf("[twitch-drops] error fetching: %v", err)
 				} else {
 					log.Printf("[twitch-drops] found %d free game(s)", len(twitchGames))
-					for _, g := range twitchGames {
-						startDate, _ := g.StartDate.MarshalText()
-						endDate, _ := g.EndDate.MarshalText()
-						newGames = append(newGames, notification.SentGame{
-							Provider:  "twitch",
-							Title:     g.Title,
-							StartDate: string(startDate),
-							EndDate:   string(endDate),
-						})
-					}
+					allGames = append(allGames, twitchGames...)
 				}
 			}
 
-			if len(newGames) == 0 {
-				log.Printf("[%s] no new free games", provider)
+			if len(allGames) == 0 {
+				log.Printf("[%s] no free games found", provider)
 				return
 			}
 
-			// Filter out duplicates using notification store
+			// Filter out duplicates using notification store (keyed on provider+title)
 			if notifStore != nil {
-				filtered, err := notifStore.FilterNew(newGames)
+				filtered, err := notifStore.FilterNew(allGames)
 				if err != nil {
 					log.Printf("[%s] warning: store error: %v", provider, err)
 				}
-				newGames = filtered
+				allGames = filtered
 			}
 
-			if len(newGames) == 0 {
+			if len(allGames) == 0 {
 				log.Printf("[%s] no new games after deduplication", provider)
 				return
 			}
 
-			// Build common.Game list for Discord
-			var games []common.Game
-			for _, sg := range newGames {
-				games = append(games, common.Game{
-					Title:    sg.Title,
-					Provider: sg.Provider,
-				})
-			}
-
-			if err := discord.Send(*discordWebhook, games); err != nil {
+			if err := discord.Send(*discordWebhook, allGames); err != nil {
 				log.Printf("[%s] error sending Discord notification: %v", provider, err)
 			} else {
-				log.Printf("[%s] notification sent for %d game(s)", provider, len(games))
+				log.Printf("[%s] notification sent for %d game(s)", provider, len(allGames))
 			}
 		}
 	}

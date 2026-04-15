@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gravityctl/free-games/common"
 )
 
 // NotificationStore tracks sent games to avoid duplicate Discord notifications.
@@ -64,18 +66,20 @@ func (s *NotificationStore) Record(provider, title, startDate, endDate string) e
 
 // FilterNew returns only games that haven't been notified yet.
 // It also updates the store with newly sent games.
-func (s *NotificationStore) FilterNew(games []SentGame) ([]SentGame, error) {
+func (s *NotificationStore) FilterNew(games []common.Game) ([]common.Game, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var new []SentGame
+	var new []common.Game
 	for _, g := range games {
 		k := key(g.Provider, g.Title)
 		if _, exists := s.entries[k]; !exists {
+			startDate, _ := g.StartDate.MarshalText()
+			endDate, _ := g.EndDate.MarshalText()
 			s.entries[k] = sentEntry{
 				SentAt:    time.Now(),
-				StartDate: g.StartDate,
-				EndDate:   g.EndDate,
+				StartDate: string(startDate),
+				EndDate:   string(endDate),
 			}
 			new = append(new, g)
 		}
@@ -114,22 +118,3 @@ func (s *NotificationStore) save() error {
 }
 
 // Cleanup removes entries older than the given duration.
-func (s *NotificationStore) Cleanup(olderThan time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cutoff := time.Now().Add(-olderThan)
-	for k, e := range s.entries {
-		if e.SentAt.Before(cutoff) {
-			delete(s.entries, k)
-		}
-	}
-	return s.save()
-}
-
-// sentGame is a lightweight game record for store operations.
-type SentGame struct {
-	Provider  string
-	Title     string
-	StartDate string
-	EndDate   string
-}
