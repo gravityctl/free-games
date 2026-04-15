@@ -42,9 +42,10 @@ type embedFooter struct {
 }
 
 const (
-	colorEpic  = 0x0078f2
-	colorSteam = 0x1b2838
+	colorEpic   = 0x0078f2
+	colorSteam  = 0x1b2838
 	colorTwitch = 0x9146ff
+	maxEmbeds   = 10 // Discord max embeds per message
 )
 
 func Send(webhookURL string, games []common.Game) error {
@@ -52,6 +53,22 @@ func Send(webhookURL string, games []common.Game) error {
 		return nil
 	}
 
+	// Send in batches of maxEmbeds (Discord limit)
+	for i := 0; i < len(games); i += maxEmbeds {
+		end := i + maxEmbeds
+		if end > len(games) {
+			end = len(games)
+		}
+		batch := games[i:end]
+
+		if err := sendBatch(webhookURL, batch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sendBatch(webhookURL string, games []common.Game) error {
 	var embeds []embed
 	for _, game := range games {
 		color := colorEpic
