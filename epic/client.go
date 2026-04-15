@@ -11,6 +11,52 @@ import (
 
 const graphqlURL = "https://graphql.epicgames.com/graphql"
 
+// catalogElement represents a game entry from Epic's GraphQL API.
+type catalogElement struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Seller      struct {
+		Name string `json:"name"`
+	} `json:"seller"`
+	KeyImages []struct {
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	} `json:"keyImages"`
+	ProductSlug string `json:"productSlug"`
+	URL         string `json:"url"`
+	UrlSlug     string `json:"urlSlug"`
+	CatalogNs   struct {
+		Mappings []struct {
+			PageSlug string `json:"pageSlug"`
+			PageType string `json:"pageType"`
+		} `json:"mappings"`
+	} `json:"catalogNs"`
+	Promotions struct {
+		PromotionalOffers []struct {
+			PromotionalOffers []struct {
+				StartDate string `json:"startDate"`
+				EndDate   string `json:"endDate"`
+			} `json:"promotionalOffers"`
+		} `json:"promotionalOffers"`
+		UpcomingPromotionalOffers []struct {
+			PromotionalOffers []struct {
+				StartDate string `json:"startDate"`
+				EndDate   string `json:"endDate"`
+			} `json:"promotionalOffers"`
+		} `json:"upcomingPromotionalOffers"`
+	} `json:"promotions"`
+}
+
+type graphQLResponse struct {
+	Data struct {
+		Catalog struct {
+			SearchStore struct {
+				Elements []catalogElement `json:"elements"`
+			} `json:"searchStore"`
+		} `json:"Catalog"`
+	} `json:"data"`
+}
+
 type Client struct {
 	country string
 	locale  string
@@ -24,49 +70,6 @@ type Game struct {
 	Publisher   string
 	StartDate   time.Time
 	EndDate     time.Time
-}
-
-type graphQLResponse struct {
-	Data struct {
-		Catalog struct {
-			SearchStore struct {
-				Elements []struct {
-					Title       string `json:"title"`
-					Description string `json:"description"`
-					Seller      struct {
-						Name string `json:"name"`
-					} `json:"seller"`
-					KeyImages []struct {
-						Type string `json:"type"`
-						URL  string `json:"url"`
-					} `json:"keyImages"`
-					ProductSlug string `json:"productSlug"`
-					URL         string `json:"url"`
-					UrlSlug     string `json:"urlSlug"`
-					CatalogNs   struct {
-						Mappings []struct {
-							PageSlug string `json:"pageSlug"`
-							PageType string `json:"pageType"`
-						} `json:"mappings"`
-					} `json:"catalogNs"`
-					Promotions struct {
-						PromotionalOffers []struct {
-							PromotionalOffers []struct {
-								StartDate string `json:"startDate"`
-								EndDate   string `json:"endDate"`
-							} `json:"promotionalOffers"`
-						} `json:"promotionalOffers"`
-						UpcomingPromotionalOffers []struct {
-							PromotionalOffers []struct {
-								StartDate string `json:"startDate"`
-								EndDate   string `json:"endDate"`
-							} `json:"promotionalOffers"`
-						} `json:"upcomingPromotionalOffers"`
-					} `json:"promotions"`
-				} `json:"elements"`
-			} `json:"searchStore"`
-		} `json:"Catalog"`
-	} `json:"data"`
 }
 
 func NewClient(country, locale string) *Client {
@@ -152,14 +155,14 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 					continue
 				}
 
-				// Only include if currently active (or starting today)
+				// Only include if currently active
 				if now.Before(end) && !now.Before(start) {
 					games = append(games, buildGame(el, start, end))
 				}
 			}
 		}
 
-		// Check upcoming offers (only if within ~7 days)
+		// Check upcoming offers (starting within next 7 days)
 		for _, promo := range el.Promotions.UpcomingPromotionalOffers {
 			for _, offer := range promo.PromotionalOffers {
 				start, err := time.Parse(time.RFC3339, offer.StartDate)
@@ -171,7 +174,6 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 					continue
 				}
 
-				// Only include upcoming games starting within next 7 days
 				if start.After(now) && start.Before(now.AddDate(0, 0, 7)) {
 					games = append(games, buildGame(el, start, end))
 				}
@@ -182,26 +184,7 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 	return games, nil
 }
 
-func buildGame(el struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Seller      struct {
-		Name string `json:"name"`
-	} `json:"seller"`
-	KeyImages []struct {
-		Type string `json:"type"`
-		URL  string `json:"url"`
-	} `json:"keyImages"`
-	ProductSlug string `json:"productSlug"`
-	URL         string `json:"url"`
-	UrlSlug     string `json:"urlSlug"`
-	CatalogNs   struct {
-		Mappings []struct {
-			PageSlug string `json:"pageSlug"`
-			PageType string `json:"pageType"`
-		} `json:"mappings"`
-	} `json:"catalogNs"`
-}, start, end time.Time) Game {
+func buildGame(el catalogElement, start, end time.Time) Game {
 	var imageURL, storeURL string
 
 	for _, img := range el.KeyImages {
@@ -211,12 +194,11 @@ func buildGame(el struct {
 		}
 	}
 
-	// Build store URL
 	if el.ProductSlug != "" {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.ProductSlug)
 	} else if el.UrlSlug != "" {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.UrlSlug)
-	} else if el.CatalogNs.Mappings != nil {
+	} else if len(el.CatalogNs.Mappings) > 0 {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.CatalogNs.Mappings[0].PageSlug)
 	}
 
