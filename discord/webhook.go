@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/gravityctl/free-games/epic"
+	"github.com/gravityctl/free-games/common"
 )
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -24,7 +25,6 @@ type embed struct {
 	Image       *embedImage  `json:"image,omitempty"`
 	Fields      []embedField `json:"fields,omitempty"`
 	Footer      *embedFooter `json:"footer,omitempty"`
-	Timestamp   string       `json:"timestamp,omitempty"`
 }
 
 type embedImage struct {
@@ -41,27 +41,40 @@ type embedFooter struct {
 	Text string `json:"text"`
 }
 
-// accent color (Epic blue-ish)
-const embedColor = 0x0078f2
+const (
+	colorEpic  = 0x0078f2
+	colorSteam = 0x1b2838
+)
 
-// Send posts a Discord webhook notification for the given free games.
-func Send(webhookURL string, games []epic.Game) error {
+func Send(webhookURL string, games []common.Game) error {
 	if len(games) == 0 {
 		return nil
 	}
 
 	var embeds []embed
 	for _, game := range games {
+		color := colorEpic
+		if game.Provider == "steam" {
+			color = colorSteam
+		}
+
 		e := embed{
-			Title:       "🎮 " + game.Title,
+			Title:       game.Title,
 			Description: truncate(game.Description, 350),
-			Color:       embedColor,
+			Color:       color,
+			URL:         game.URL,
 			Fields: []embedField{
 				{Name: "Publisher", Value: game.Publisher, Inline: true},
-				{Name: "Start Date", Value: game.StartDate.Format("Jan 2, 2006"), Inline: true},
-				{Name: "End Date", Value: game.EndDate.Format("Jan 2, 2006"), Inline: true},
+				{Name: "Provider", Value: strings.Title(game.Provider), Inline: true},
 			},
-			Footer: &embedFooter{Text: "Epic Games Store • Free Games"},
+			Footer: &embedFooter{Text: "Free Games"},
+		}
+
+		if !game.StartDate.IsZero() {
+			e.Fields = append(e.Fields, embedField{Name: "Start Date", Value: game.StartDate.Format("Jan 2, 2006"), Inline: true})
+		}
+		if !game.EndDate.IsZero() {
+			e.Fields = append(e.Fields, embedField{Name: "End Date", Value: game.EndDate.Format("Jan 2, 2006"), Inline: true})
 		}
 
 		if game.ImageURL != "" {
