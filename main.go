@@ -61,6 +61,18 @@ func main() {
 
 	itadKey := os.Getenv("TWITCH_ITAD_KEY")
 
+	// Custom emojis per provider (Discord native format: <:name:id>)
+	customEmojis := make(map[string]string)
+	if e := os.Getenv("EPIC_EMOJI"); e != "" {
+		customEmojis["epic"] = e
+	}
+	if e := os.Getenv("STEAM_EMOJI"); e != "" {
+		customEmojis["steam"] = e
+	}
+	if e := os.Getenv("TWITCH_EMOJI"); e != "" {
+		customEmojis["twitch"] = e
+	}
+
 	runner := func(provider string) func() {
 		return func() {
 			var allGames []common.Game
@@ -117,7 +129,7 @@ func main() {
 				return
 			}
 
-			if err := discord.Send(*discordWebhook, allGames); err != nil {
+			if err := discord.Send(*discordWebhook, allGames, customEmojis); err != nil {
 				log.Printf("[%s] error sending Discord notification: %v", provider, err)
 			} else {
 				log.Printf("[%s] notification sent for %d game(s)", provider, len(allGames))

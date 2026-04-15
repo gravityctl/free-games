@@ -48,7 +48,27 @@ const (
 	maxEmbeds   = 10 // Discord max embeds per message
 )
 
-func Send(webhookURL string, games []common.Game) error {
+// EmojiFor returns the emoji for a provider, using custom emoji if configured.
+// Custom emojis are specified as Discord native format <:name:id> or plain unicode.
+func EmojiFor(provider, customEmoji string) string {
+	if customEmoji != "" {
+		return customEmoji
+	}
+	switch provider {
+	case "epic":
+		return "🔶"
+	case "steam":
+		return "🎲"
+	case "twitch":
+		return "🟣"
+	default:
+		return "🎮"
+	}
+}
+
+// Send delivers a Discord notification for the given games.
+// customEmojis is a map of provider -> emoji string (e.g. "epic" -> "<:epic:123456>")
+func Send(webhookURL string, games []common.Game, customEmojis ...map[string]string) error {
 	if len(games) == 0 {
 		return nil
 	}
@@ -61,15 +81,15 @@ func Send(webhookURL string, games []common.Game) error {
 		}
 		batch := games[i:end]
 
-		if err := sendBatch(webhookURL, batch); err != nil {
+		if err := sendBatch(webhookURL, batch, customEmojis...); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func sendBatch(webhookURL string, games []common.Game) error {
-	var embeds []embed
+func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[string]string) error {
+	var embs []embed
 	for _, game := range games {
 		color := colorEpic
 		switch game.Provider {
@@ -79,6 +99,11 @@ func sendBatch(webhookURL string, games []common.Game) error {
 			color = colorTwitch
 		}
 
+		customEmoji := ""
+		if len(customEmojis) > 0 && customEmojis[0] != nil {
+			customEmoji = customEmojis[0][game.Provider]
+		}
+
 		e := embed{
 			Title:       game.Title,
 			Description: truncate(game.Description, 350),
@@ -86,7 +111,7 @@ func sendBatch(webhookURL string, games []common.Game) error {
 			URL:         game.URL,
 			Fields: []embedField{
 				{Name: "Publisher", Value: game.Publisher, Inline: true},
-				{Name: "Provider", Value: providerEmoji(game.Provider) + " " + strings.Title(game.Provider), Inline: true},
+				{Name: "Provider", Value: EmojiFor(game.Provider, customEmoji) + " " + strings.Title(game.Provider), Inline: true},
 			},
 			Footer: &embedFooter{Text: "Free Games"},
 		}
@@ -102,10 +127,10 @@ func sendBatch(webhookURL string, games []common.Game) error {
 			e.Image = &embedImage{URL: game.ImageURL}
 		}
 
-		embeds = append(embeds, e)
+		embs = append(embs, e)
 	}
 
-	payload := webhookPayload{Embeds: embeds}
+	payload := webhookPayload{Embeds: embs}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -130,19 +155,6 @@ func sendBatch(webhookURL string, games []common.Game) error {
 	}
 
 	return nil
-}
-
-func providerEmoji(provider string) string {
-	switch provider {
-	case "epic":
-		return "🔶"
-	case "steam":
-		return "🎲"
-	case "twitch":
-		return "🟣"
-	default:
-		return "🎮"
-	}
 }
 
 func truncate(s string, max int) string {
