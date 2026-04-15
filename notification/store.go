@@ -1,10 +1,10 @@
 package notification
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,10 +36,10 @@ func NewNotificationStore(path string) (*NotificationStore, error) {
 	return s, nil
 }
 
-// key generates a deterministic hash for a game entry.
+// key creates a simple deduplication key from provider and title.
+// Lowercased and whitespace-trimmed for consistency.
 func key(provider, title string) string {
-	h := sha256.Sum256([]byte(provider + "|" + title))
-	return string(h[:16]) // first 16 bytes as string
+	return strings.ToLower(strings.TrimSpace(provider)) + "|" + strings.ToLower(strings.TrimSpace(title))
 }
 
 // HasSent returns true if this game was already notified.
