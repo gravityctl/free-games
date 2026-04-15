@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/gravityctl/free-games/discord"
 	"github.com/gravityctl/free-games/epic"
@@ -18,6 +19,7 @@ func main() {
 	country := flag.String("country", envOr("EPIC_COUNTRY", "US"), "Epic store country code")
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", "0 0 * * 4"), "Cron schedule (default: every Thursday at midnight)")
+	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
 	runOnce := flag.Bool("once", false, "Run once and exit (no cron)")
 	flag.Parse()
 
@@ -28,7 +30,7 @@ func main() {
 	epicClient := epic.NewClient(*country, *locale)
 
 	runner := func() {
-		games, err := epicClient.FetchFreeGames()
+		games, err := epicClient.FetchFreeGames(*includeUpcoming)
 		if err != nil {
 			log.Printf("Error fetching games: %v", err)
 			return
@@ -67,6 +69,15 @@ func main() {
 func envOr(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return defaultVal
+}
+
+func envOrBool(key string, defaultVal bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
 	return defaultVal
 }

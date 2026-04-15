@@ -73,7 +73,7 @@ type catalogElement struct {
 	} `json:"promotions"`
 }
 
-func (c *Client) FetchFreeGames() ([]Game, error) {
+func (c *Client) FetchFreeGames(includeUpcoming bool) ([]Game, error) {
 	url := fmt.Sprintf("%s?locale=%s&country=%s", freeGamesURL, c.locale, c.country)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -122,6 +122,9 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 		}
 
 		// Check upcoming (starting within 7 days)
+		if !includeUpcoming {
+			continue
+		}
 		for _, promo := range el.Promotions.UpcomingPromotionalOffers {
 			for _, offer := range promo.PromotionalOffers {
 				start, err := time.Parse(time.RFC3339, offer.StartDate)
