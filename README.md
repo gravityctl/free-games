@@ -56,4 +56,53 @@ go run . --country US --locale en-US
 
 Twitch support requires specifying which drop owners to include via `TWITCH_OWNERS`. This allows fine-grained control over which games trigger notifications.
 
-Example owners: `Wargaming`, `Riot Games`, `Blizzard`, `Electronic Arts`, `Nimble Neuron Games`, `Madfinger Games`, etc.
+### Available owners
+Set `TWITCH_OWNERS` to a comma-separated list of owner names. Current available owners:
+
+- **Bandai/Namco** — Dragon Ball Gekishin Squadra
+- **Blizzard** — World of Warcraft, Overwatch
+- **Combat Cat Studio** — Wild Assault
+- **Cognosphere** — Honkai: Star Rail, Genshin Impact
+- **Electronic Arts** — EA Sports College Football 26
+- **Embark Studios** — ARC Raiders
+- **IGG** — Viking Rise
+- **INFOLD PTE. LTD.** — Infinity Nikki
+- **KURO GAMES** — Wuthering Waves
+- **KRAFTON Inc.** — PUBG: Battlegrounds
+- **Level Infinite** — Dragonheir: Silent Gods, Arena Breakout: Infinite
+- **Litty Games** — Coin Pusher Live
+- **MADFINGER Games** — Gray Zone Warfare
+- **Marvel Rivals** — Marvel Rivals
+- **NetEase** — NARAKA: BLADEPOINT
+- **Netmarble** — Mongil: Star Dive
+- **Nimble Neuron Games** — Eternal Return
+- **Omeda Studios** — Predecessor
+- **OneWay Ticket Studio** — The Midnight Walkers
+- **Out of the Park Developments** — Out of the Park Baseball 27
+- **Pearl Abyss** — Black Desert
+- **Pixile Studios** — Super Animal Royale
+- **Qoolandgames** — Soulmask
+- **Red Barrels** — The Outlast Trials
+- **Riot Games** — League of Legends
+- **Roko Game Studios** — Rise Online
+- **Sandbox Interactive** — Albion Online
+- **Scopely** — MARVEL Strike Force
+- **Sharkmob** — Vampire: The Masquerade - Bloodhunt
+- **Starry** — Once Human
+- **The Pokémon Company** — Pokémon Trading Card Game Live
+- **Twitch Gaming** — Dead by Daylight, Don't Starve Together, Shakes and Fidget, Rainbow Six Siege, EVE Online, Mir Korabley, MARVEL Contest of Champions, SMITE 2, Just Chatting, Mir Tankov, Mobile Dungeon, Minecraft, Windrose, Science & Technology, QSMP
+- **Ubisoft** — Brawlhalla
+- **Vawraek Technology** — The Quinfall
+- **ViVa Games** — Kakele Online - MMORPG
+- **Wargaming** — World of Tanks, World of Warships, World of Tanks Console
+- **Wemade Entertainment** — Legend of YMIR
+- **Wolvesville** — Wolvesville
+- **Zenimax Online Studios** — The Elder Scrolls Online
+- **1047 Games** — SPLITGATE: Arena Reloaded
+- **2K Games** — NBA 2K26
+- **A PLUS JAPAN Inc.** — Blue Protocol: Star Resonance
+- **Artstorm FZE** — Modern Warships
+- **Bad Guitar Studio** — FragPunk
+- **IO Interactive** — HITMAN World of Assassination
+
+Example: `TWITCH_OWNERS=Wargaming,Riot Games,Blizzard,Electronic Arts`
