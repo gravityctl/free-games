@@ -24,6 +24,7 @@ func main() {
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
 	enableSteam := flag.Bool("steam", envOrBool("ENABLE_STEAM", false), "Enable Steam scraper")
+	enableTwitch := flag.Bool("twitch", envOrBool("ENABLE_TWITCH", false), "Enable Twitch drops scraper")
 	twitchPlatformsStr := flag.String("twitch-platforms", envOr("TWITCH_PLATFORMS", ""), "Comma-separated Twitch drop platforms to include (steam,gog,epic,amazon)")
 	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", "0 0 0 * * 4"), "Cron schedule (default: every Thursday at midnight)")
 	runOnce := flag.Bool("once", false, "Run once and exit (no cron)")
@@ -40,6 +41,14 @@ func main() {
 		twitchEnabled = make(map[string]bool)
 		for _, p := range platforms {
 			twitchEnabled[strings.TrimSpace(strings.ToLower(p))] = true
+		}
+	} else if *enableTwitch {
+		// Default: all known platforms
+		twitchEnabled = map[string]bool{
+			"steam":  true,
+			"gog":    true,
+			"epic":   true,
+			"amazon": true,
 		}
 	}
 
@@ -70,7 +79,7 @@ func main() {
 			}
 		}
 
-		// Fetch Twitch drops if platforms configured
+		// Fetch Twitch drops if enabled (platforms default to all known if not specified)
 		if len(twitchEnabled) > 0 {
 			twitchClient := twitch.NewClient(twitchEnabled, itadKey)
 			var twitchGames []common.Game
