@@ -1,7 +1,6 @@
 package epic
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,9 +8,37 @@ import (
 	"time"
 )
 
-const graphqlURL = "https://graphql.epicgames.com/graphql"
+const freeGamesURL = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
 
-// catalogElement represents a game entry from Epic's GraphQL API.
+type Client struct {
+	country string
+	locale  string
+}
+
+type Game struct {
+	Title       string
+	Description string
+	ImageURL    string
+	URL         string
+	Publisher   string
+	StartDate   time.Time
+	EndDate     time.Time
+}
+
+func NewClient(country, locale string) *Client {
+	return &Client{country: country, locale: locale}
+}
+
+type response struct {
+	Data struct {
+		Catalog struct {
+			SearchStore struct {
+				Elements []catalogElement `json:"elements"`
+			} `json:"searchStore"`
+		} `json:"Catalog"`
+	} `json:"data"`
+}
+
 type catalogElement struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
@@ -22,10 +49,9 @@ type catalogElement struct {
 		Type string `json:"type"`
 		URL  string `json:"url"`
 	} `json:"keyImages"`
-	ProductSlug string `json:"productSlug"`
-	URL         string `json:"url"`
-	UrlSlug     string `json:"urlSlug"`
-	CatalogNs   struct {
+	ProductSlug   string `json:"productSlug"`
+	URLSlug       string `json:"urlSlug"`
+	CatalogNs     struct {
 		Mappings []struct {
 			PageSlug string `json:"pageSlug"`
 			PageType string `json:"pageType"`
@@ -47,103 +73,37 @@ type catalogElement struct {
 	} `json:"promotions"`
 }
 
-type graphQLResponse struct {
-	Data struct {
-		Catalog struct {
-			SearchStore struct {
-				Elements []catalogElement `json:"elements"`
-			} `json:"searchStore"`
-		} `json:"Catalog"`
-	} `json:"data"`
-}
-
-type Client struct {
-	country string
-	locale  string
-}
-
-type Game struct {
-	Title       string
-	Description string
-	ImageURL    string
-	URL         string
-	Publisher   string
-	StartDate   time.Time
-	EndDate     time.Time
-}
-
-func NewClient(country, locale string) *Client {
-	return &Client{country: country, locale: locale}
-}
-
 func (c *Client) FetchFreeGames() ([]Game, error) {
-	query := `query searchStoreQuery($category: String, $count: Int, $country: String!, $locale: String, $freeGame: Boolean, $onSale: Boolean) {
-  Catalog {
-    searchStore(
-      category: $category
-      count: $count
-      country: $country
-      freeGame: $freeGame
-      onSale: $onSale
-      locale: $locale
-    ) {
-      elements {
-        title
-        description
-        seller { name }
-        keyImages { type url }
-        productSlug
-        url
-        urlSlug
-        catalogNs {
-          mappings(pageType: "productHome") {
-            pageSlug
-            pageType
-          }
-        }
-        promotions {
-          promotionalOffers {
-            promotionalOffers {
-              startDate
-              endDate
-            }
-          }
-          upcomingPromotionalOffers {
-            promotionalOffers {
-              startDate
-              endDate
-            }
-          }
-        }
-      }
-    }
-  }
-}`
+	url := fmt.Sprintf("%s?locale=%s&country=%s", freeGamesURL, c.locale, c.country)
 
-	variables := map[string]interface{}{
-		"category": "games/edition/base|bundles/games|editors",
-		"count":    50,
-		"country":  c.country,
-		"locale":   c.locale,
-		"freeGame": true,
-		"onSale":   true,
-	}
-
-	body, err := c.doGraphQL(query, variables)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-	var resp graphQLResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("non-200 response: %d: %s", resp.StatusCode, string(body))
+	}
+
+	var r response
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	var games []Game
 	now := time.Now()
 
-	for _, el := range resp.Data.Catalog.SearchStore.Elements {
-		// Check current promotional offers
+	for _, el := range r.Data.Catalog.SearchStore.Elements {
+		// Check current promotions
 		for _, promo := range el.Promotions.PromotionalOffers {
 			for _, offer := range promo.PromotionalOffers {
 				start, err := time.Parse(time.RFC3339, offer.StartDate)
@@ -155,14 +115,13 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 					continue
 				}
 
-				// Only include if currently active
 				if now.Before(end) && !now.Before(start) {
-					games = append(games, buildGame(el, start, end))
+					games = append(games, c.buildGame(el, start, end))
 				}
 			}
 		}
 
-		// Check upcoming offers (starting within next 7 days)
+		// Check upcoming (starting within 7 days)
 		for _, promo := range el.Promotions.UpcomingPromotionalOffers {
 			for _, offer := range promo.PromotionalOffers {
 				start, err := time.Parse(time.RFC3339, offer.StartDate)
@@ -175,7 +134,7 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 				}
 
 				if start.After(now) && start.Before(now.AddDate(0, 0, 7)) {
-					games = append(games, buildGame(el, start, end))
+					games = append(games, c.buildGame(el, start, end))
 				}
 			}
 		}
@@ -184,7 +143,7 @@ func (c *Client) FetchFreeGames() ([]Game, error) {
 	return games, nil
 }
 
-func buildGame(el catalogElement, start, end time.Time) Game {
+func (c *Client) buildGame(el catalogElement, start, end time.Time) Game {
 	var imageURL, storeURL string
 
 	for _, img := range el.KeyImages {
@@ -196,8 +155,8 @@ func buildGame(el catalogElement, start, end time.Time) Game {
 
 	if el.ProductSlug != "" {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.ProductSlug)
-	} else if el.UrlSlug != "" {
-		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.UrlSlug)
+	} else if el.URLSlug != "" {
+		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.URLSlug)
 	} else if len(el.CatalogNs.Mappings) > 0 {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.CatalogNs.Mappings[0].PageSlug)
 	}
@@ -211,38 +170,4 @@ func buildGame(el catalogElement, start, end time.Time) Game {
 		StartDate:   start,
 		EndDate:     end,
 	}
-}
-
-func (c *Client) doGraphQL(query string, variables map[string]interface{}) ([]byte, error) {
-	payload := map[string]interface{}{
-		"query":     query,
-		"variables": variables,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", graphqlURL, bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("non-200 response: %d: %s", resp.StatusCode, string(b))
-	}
-
-	return io.ReadAll(resp.Body)
 }
