@@ -10,6 +10,7 @@ import (
 	"github.com/gravityctl/free-games/common"
 	"github.com/gravityctl/free-games/discord"
 	"github.com/gravityctl/free-games/epic"
+	"github.com/gravityctl/free-games/notification"
 	"github.com/gravityctl/free-games/steam"
 	"github.com/gravityctl/free-games/twitch"
 	"github.com/joho/godotenv"
@@ -24,26 +25,32 @@ func main() {
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
 	enableSteam := flag.Bool("steam", envOrBool("ENABLE_STEAM", false), "Enable Steam scraper")
-	enableTwitchDrops := flag.Bool("twitch-drops", envOrBool("ENABLE_TWITCH_DROPS", false), "Enable Twitch drops scraper (Minecraft cape drops)")
-	twitchPlatformsStr := flag.String("twitch-platforms", envOr("TWITCH_PLATFORMS", ""), "Comma-separated Twitch drop platforms to include (steam,gog,epic,amazon)")
-	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", "0 0 0 * * 4"), "Cron schedule (default: every Thursday at midnight)")
-	runOnce := flag.Bool("once", false, "Run once and exit (no cron)")
+	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", ""), "Legacy cron schedule (used if no per-provider schedule set)")
+	runOnce := flag.Bool("once", false, "Run all enabled scrapers once and exit (no cron)")
+	storePath := flag.String("store", envOr("NOTIFICATION_STORE_PATH", ".free-games-store.json"), "Path to notification deduplication store")
 	flag.Parse()
 
 	if *discordWebhook == "" {
 		log.Fatal("DISCORD_WEBHOOK_URL is required")
 	}
 
-	// Build Twitch platform lookup map
+	// Load notification store for deduplication
+	notifStore, err := notification.NewNotificationStore(*storePath)
+	if err != nil {
+		log.Printf("Warning: could not open notification store: %v", err)
+	}
+
+	// Build Twitch drops config
+	twitchDropsPlatformsStr := envOr("TWITCH_DROPS_PLATFORMS", "")
+	twitchDropsEnabled := envOrBool("ENABLE_TWITCH_DROPS", false)
 	var twitchEnabled map[string]bool
-	if strings.TrimSpace(*twitchPlatformsStr) != "" {
-		platforms := strings.Split(*twitchPlatformsStr, ",")
+	if strings.TrimSpace(twitchDropsPlatformsStr) != "" {
+		platforms := strings.Split(twitchDropsPlatformsStr, ",")
 		twitchEnabled = make(map[string]bool)
 		for _, p := range platforms {
 			twitchEnabled[strings.TrimSpace(strings.ToLower(p))] = true
 		}
-	} else if *enableTwitchDrops {
-		// Default: all known platforms (for Minecraft cape drops)
+	} else if twitchDropsEnabled {
 		twitchEnabled = map[string]bool{
 			"steam":  true,
 			"gog":    true,
@@ -54,75 +61,150 @@ func main() {
 
 	itadKey := os.Getenv("TWITCH_ITAD_KEY")
 
-	runner := func() {
-		var allGames []common.Game
+	runner := func(provider string) func() {
+		return func() {
+			var newGames []notification.SentGame
 
-		// Fetch Epic games
-		epicClient := epic.NewClient(*country, *locale, *includeUpcoming)
-		epicGames, err := epicClient.FetchFreeGames()
-		if err != nil {
-			log.Printf("Error fetching Epic games: %v", err)
-		} else {
-			log.Printf("Found %d Epic free game(s)", len(epicGames))
-			allGames = append(allGames, epicGames...)
-		}
-
-		// Fetch Steam games if enabled
-		if *enableSteam {
-			steamScraper := steam.NewScraper()
-			steamGames, err := steamScraper.FetchFreeGames()
-			if err != nil {
-				log.Printf("Error fetching Steam games: %v", err)
-			} else {
-				log.Printf("Found %d Steam free game(s)", len(steamGames))
-				allGames = append(allGames, steamGames...)
+			if provider == "epic" {
+				epicClient := epic.NewClient(*country, *locale, *includeUpcoming)
+				epicGames, err := epicClient.FetchFreeGames()
+				if err != nil {
+					log.Printf("[epic] error fetching: %v", err)
+				} else {
+					log.Printf("[epic] found %d free game(s)", len(epicGames))
+					for _, g := range epicGames {
+						startDate, _ := g.StartDate.MarshalText()
+						endDate, _ := g.EndDate.MarshalText()
+						newGames = append(newGames, notification.SentGame{
+							Provider:  "epic",
+							Title:     g.Title,
+							StartDate: string(startDate),
+							EndDate:   string(endDate),
+						})
+					}
+				}
 			}
-		}
 
-		// Fetch Twitch drops if enabled (Minecraft cape drops only, platform filter optional)
-		if len(twitchEnabled) > 0 {
-			twitchClient := twitch.NewClient(twitchEnabled, itadKey, true)
-			var twitchGames []common.Game
-			var err error
-			if itadKey != "" {
-				twitchGames, err = twitchClient.FetchDropsWithPlatformFilter()
-			} else {
-				twitchGames, err = twitchClient.FetchDrops()
+			if provider == "steam" && *enableSteam {
+				steamScraper := steam.NewScraper()
+				steamGames, err := steamScraper.FetchFreeGames()
+				if err != nil {
+					log.Printf("[steam] error fetching: %v", err)
+				} else {
+					log.Printf("[steam] found %d free game(s)", len(steamGames))
+					for _, g := range steamGames {
+						startDate, _ := g.StartDate.MarshalText()
+						endDate, _ := g.EndDate.MarshalText()
+						newGames = append(newGames, notification.SentGame{
+							Provider:  "steam",
+							Title:     g.Title,
+							StartDate: string(startDate),
+							EndDate:   string(endDate),
+						})
+					}
+				}
 			}
-			if err != nil {
-				log.Printf("Error fetching Twitch drops: %v", err)
-			} else {
-				log.Printf("Found %d Twitch free game(s)", len(twitchGames))
-				allGames = append(allGames, twitchGames...)
+
+			if provider == "twitch-drops" && len(twitchEnabled) > 0 {
+				twitchClient := twitch.NewClient(twitchEnabled, itadKey, true)
+				twitchGames, err := twitchClient.FetchDrops()
+				if err != nil {
+					log.Printf("[twitch-drops] error fetching: %v", err)
+				} else {
+					log.Printf("[twitch-drops] found %d free game(s)", len(twitchGames))
+					for _, g := range twitchGames {
+						startDate, _ := g.StartDate.MarshalText()
+						endDate, _ := g.EndDate.MarshalText()
+						newGames = append(newGames, notification.SentGame{
+							Provider:  "twitch",
+							Title:     g.Title,
+							StartDate: string(startDate),
+							EndDate:   string(endDate),
+						})
+					}
+				}
 			}
-		}
 
-		if len(allGames) == 0 {
-			log.Println("No free games found this week")
-			return
-		}
+			if len(newGames) == 0 {
+				log.Printf("[%s] no new free games", provider)
+				return
+			}
 
-		if err := discord.Send(*discordWebhook, allGames); err != nil {
-			log.Printf("Error sending Discord notification: %v", err)
-		} else {
-			log.Printf("Notification sent for %d game(s)", len(allGames))
+			// Filter out duplicates using notification store
+			if notifStore != nil {
+				filtered, err := notifStore.FilterNew(newGames)
+				if err != nil {
+					log.Printf("[%s] warning: store error: %v", provider, err)
+				}
+				newGames = filtered
+			}
+
+			if len(newGames) == 0 {
+				log.Printf("[%s] no new games after deduplication", provider)
+				return
+			}
+
+			// Build common.Game list for Discord
+			var games []common.Game
+			for _, sg := range newGames {
+				games = append(games, common.Game{
+					Title:    sg.Title,
+					Provider: sg.Provider,
+				})
+			}
+
+			if err := discord.Send(*discordWebhook, games); err != nil {
+				log.Printf("[%s] error sending Discord notification: %v", provider, err)
+			} else {
+				log.Printf("[%s] notification sent for %d game(s)", provider, len(games))
+			}
 		}
 	}
 
 	if *runOnce {
-		runner()
+		log.Println("Running all scrapers once (no cron)...")
+		runner("epic")()
+		if *enableSteam {
+			runner("steam")()
+		}
+		if len(twitchEnabled) > 0 {
+			runner("twitch-drops")()
+		}
 		return
 	}
 
 	c := cron.New()
-	_, err := c.AddFunc(*cronSchedule, runner)
-	if err != nil {
-		log.Fatalf("Invalid cron schedule %q: %v", *cronSchedule, err)
+
+	// Epic schedule: default Thursday midnight, overrideable via EPIC_SCHEDULE
+	epicSchedule := envOr("EPIC_SCHEDULE", "0 0 0 * * 4")
+	if *cronSchedule != "" && envOr("EPIC_SCHEDULE", "") == "" {
+		epicSchedule = *cronSchedule
+	}
+	if _, err := c.AddFunc(epicSchedule, runner("epic")); err != nil {
+		log.Fatalf("Invalid EPIC_SCHEDULE %q: %v", epicSchedule, err)
+	}
+	log.Printf("[epic] scheduled: %s", epicSchedule)
+
+	// Steam schedule: default daily at 9am, overrideable via STEAM_SCHEDULE
+	if *enableSteam {
+		steamSchedule := envOr("STEAM_SCHEDULE", "0 0 9 * * *")
+		if _, err := c.AddFunc(steamSchedule, runner("steam")); err != nil {
+			log.Fatalf("Invalid STEAM_SCHEDULE %q: %v", steamSchedule, err)
+		}
+		log.Printf("[steam] scheduled: %s", steamSchedule)
 	}
 
-	log.Printf("free-games service started. Checking every %s", *cronSchedule)
-	c.Start()
+	// Twitch drops schedule: default daily at noon, overrideable via TWITCH_DROPS_SCHEDULE
+	if len(twitchEnabled) > 0 {
+		tdSchedule := envOr("TWITCH_DROPS_SCHEDULE", "0 0 12 * * *")
+		if _, err := c.AddFunc(tdSchedule, runner("twitch-drops")); err != nil {
+			log.Fatalf("Invalid TWITCH_DROPS_SCHEDULE %q: %v", tdSchedule, err)
+		}
+		log.Printf("[twitch-drops] scheduled: %s", tdSchedule)
+	}
 
+	log.Println("free-games service started")
+	c.Start()
 	<-make(chan struct{})
 }
 
