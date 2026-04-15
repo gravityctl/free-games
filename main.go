@@ -4,7 +4,6 @@ import (
 	"flag"
 	"log"
 	"os"
-	"time"
 
 	"github.com/gravityctl/free-games/discord"
 	"github.com/gravityctl/free-games/epic"
