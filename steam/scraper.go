@@ -3,6 +3,7 @@ package steam
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -13,10 +14,8 @@ import (
 )
 
 const (
-	searchURL      = "https://store.steampowered.com/search/?sort_by=Price_Desc&category1=game&hidef2p=1&filter=freetoplafalse&empty=1"
-	searchURLUSD   = "https://store.steampowered.com/search/?sort_by=Price_Desc&category1=game&hidef2p=1&empty=1"
-	gameAPIURL     = "https://store.steampowered.com/api/appdetails?appids=%d&cc=US&l=en"
-	freeGamesURL   = "https://store.steampowered.com/specials/?cc=US&l=en"
+	searchURL  = "https://store.steampowered.com/search/?sort_by=Price_Desc&category1=game&hidef2p=1&empty=1"
+	gameAPIURL = "https://store.steampowered.com/api/appdetails?appids=%d&cc=US&l=en"
 )
 
 // Scraper fetches free games from Steam.
@@ -68,7 +67,7 @@ func (s *Scraper) scrapeFreeGamesFromSearch() ([]common.Game, error) {
 		return nil, fmt.Errorf("search returned %d", resp.StatusCode)
 	}
 
-	body, err := readAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -234,12 +233,4 @@ func (s *Scraper) fetchGameDetails(appID int) (*common.Game, error) {
 
 	// is_free=true but no price = F2P, skip
 	return nil
-}
-
-func readAll(b []byte) ([]byte, error) {
-	const max = 5 * 1024 * 1024 // 5MB
-	if len(b) > max {
-		return b[:max], nil
-	}
-	return b, nil
 }
