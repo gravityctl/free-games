@@ -7,10 +7,13 @@ import (
 
 	"github.com/gravityctl/free-games/discord"
 	"github.com/gravityctl/free-games/epic"
+	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
 
 func main() {
+	godotenv.Load()
+
 	discordWebhook := flag.String("discord-webhook", envOr("DISCORD_WEBHOOK_URL", ""), "Discord webhook URL")
 	country := flag.String("country", envOr("EPIC_COUNTRY", "US"), "Epic store country code")
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
