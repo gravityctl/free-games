@@ -116,6 +116,11 @@ func (c *Client) FetchDrops() ([]common.Game, error) {
 			continue
 		}
 
+		// Skip drops that are not yet active (all rewards disabled)
+		if !c.isDropActive(drop) {
+			continue
+		}
+
 		games = append(games, common.Game{
 			Title:       drop.GameDisplayName,
 			Description: dropDescription(drop),
@@ -131,7 +136,7 @@ func (c *Client) FetchDrops() ([]common.Game, error) {
 	return games, nil
 }
 
-// FetchDropsWithPlatformFilter fetches drops and filters by enabled platforms.
+// FetchDrops fetches active Twitch drops for enabled platforms only.
 // Uses isthereanydeal.com to determine cross-platform availability.
 func (c *Client) FetchDropsWithPlatformFilter() ([]common.Game, error) {
 	resp, err := c.client.Get(dropsAPI)
@@ -167,6 +172,11 @@ func (c *Client) FetchDropsWithPlatformFilter() ([]common.Game, error) {
 			continue
 		}
 		if start.Before(now.AddDate(0, 0, -7)) && start.After(now) == false {
+			continue
+		}
+
+		// Skip drops that are not yet active (all rewards disabled)
+		if !c.isDropActive(drop) {
 			continue
 		}
 
@@ -292,6 +302,15 @@ func (c *Client) getGameID(gameName string) (string, error) {
 		return "", nil
 	}
 	return result.Data[0].ID, nil
+}
+
+func (c *Client) isDropActive(drop Drop) bool {
+	for _, r := range drop.Rewards {
+		if r.Allow != nil && r.Allow.IsEnabled {
+			return true
+		}
+	}
+	return false
 }
 
 func dropDescription(drop Drop) string {
