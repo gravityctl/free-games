@@ -86,7 +86,7 @@ func sendBatch(webhookURL string, games []common.Game) error {
 			URL:         game.URL,
 			Fields: []embedField{
 				{Name: "Publisher", Value: game.Publisher, Inline: true},
-				{Name: "Provider", Value: strings.Title(game.Provider), Inline: true},
+				{Name: "Provider", Value: providerEmoji(game.Provider) + " " + strings.Title(game.Provider), Inline: true},
 			},
 			Footer: &embedFooter{Text: "Free Games"},
 		}
@@ -130,6 +130,19 @@ func sendBatch(webhookURL string, games []common.Game) error {
 	}
 
 	return nil
+}
+
+func providerEmoji(provider string) string {
+	switch provider {
+	case "epic":
+		return "🔶"
+	case "steam":
+		return "🎲"
+	case "twitch":
+		return "🟣"
+	default:
+		return "🎮"
+	}
 }
 
 func truncate(s string, max int) string {
