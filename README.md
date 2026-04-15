@@ -27,8 +27,8 @@ go run . --schedule "0 0 9 * * *"
 # Enable Steam scraper
 go run . --steam
 
-# Enable Twitch drops for specific owners
-go run . --twitch-owners "Wargaming,Riot Games,Blizzard"
+# Enable Twitch drops for specific platforms
+go run . --twitch-platforms "steam,gog,epic"
 
 # Custom country/locale for Epic
 go run . --country US --locale en-US
@@ -43,66 +43,33 @@ go run . --country US --locale en-US
 | `EPIC_LOCALE` | `en-US` | Epic store locale |
 | `EPIC_INCLUDE_UPCOMING` | `false` | Include upcoming Epic free games |
 | `ENABLE_STEAM` | `false` | Enable Steam scraper |
-| `TWITCH_OWNERS` | _(empty)_ | Comma-separated Twitch drop owner names to include |
+| `TWITCH_PLATFORMS` | _(empty)_ | Comma-separated Twitch drop platforms to include |
+| `TWITCH_ITAD_KEY` | _(empty)_ | Optional isthereanydeal.com API key for cross-platform lookups |
 | `CHECK_SCHEDULE` | `0 0 0 * * 4` | Cron schedule (Thursdays midnight) |
 
 ## Supported Providers
 
 - [x] Epic Games Store (weekly free games)
 - [x] Steam (free games excluding Free-to-Play)
-- [x] Twitch Drops (configurable per-owner filtering)
+- [x] Twitch Drops (configurable per-platform filtering)
 
 ## Twitch Drops
 
-Twitch support requires specifying which drop owners to include via `TWITCH_OWNERS`. This allows fine-grained control over which games trigger notifications.
+Twitch support filters by **distribution platform** (which store you can claim from).
 
-### Available owners
-Set `TWITCH_OWNERS` to a comma-separated list of owner names. Current available owners:
+### Supported Platforms
 
-- **Bandai/Namco** — Dragon Ball Gekishin Squadra
-- **Blizzard** — World of Warcraft, Overwatch
-- **Combat Cat Studio** — Wild Assault
-- **Cognosphere** — Honkai: Star Rail, Genshin Impact
-- **Electronic Arts** — EA Sports College Football 26
-- **Embark Studios** — ARC Raiders
-- **IGG** — Viking Rise
-- **INFOLD PTE. LTD.** — Infinity Nikki
-- **KURO GAMES** — Wuthering Waves
-- **KRAFTON Inc.** — PUBG: Battlegrounds
-- **Level Infinite** — Dragonheir: Silent Gods, Arena Breakout: Infinite
-- **Litty Games** — Coin Pusher Live
-- **MADFINGER Games** — Gray Zone Warfare
-- **Marvel Rivals** — Marvel Rivals
-- **NetEase** — NARAKA: BLADEPOINT
-- **Netmarble** — Mongil: Star Dive
-- **Nimble Neuron Games** — Eternal Return
-- **Omeda Studios** — Predecessor
-- **OneWay Ticket Studio** — The Midnight Walkers
-- **Out of the Park Developments** — Out of the Park Baseball 27
-- **Pearl Abyss** — Black Desert
-- **Pixile Studios** — Super Animal Royale
-- **Qoolandgames** — Soulmask
-- **Red Barrels** — The Outlast Trials
-- **Riot Games** — League of Legends
-- **Roko Game Studios** — Rise Online
-- **Sandbox Interactive** — Albion Online
-- **Scopely** — MARVEL Strike Force
-- **Sharkmob** — Vampire: The Masquerade - Bloodhunt
-- **Starry** — Once Human
-- **The Pokémon Company** — Pokémon Trading Card Game Live
-- **Twitch Gaming** — Dead by Daylight, Don't Starve Together, Shakes and Fidget, Rainbow Six Siege, EVE Online, Mir Korabley, MARVEL Contest of Champions, SMITE 2, Just Chatting, Mir Tankov, Mobile Dungeon, Minecraft, Windrose, Science & Technology, QSMP
-- **Ubisoft** — Brawlhalla
-- **Vawraek Technology** — The Quinfall
-- **ViVa Games** — Kakele Online - MMORPG
-- **Wargaming** — World of Tanks, World of Warships, World of Tanks Console
-- **Wemade Entertainment** — Legend of YMIR
-- **Wolvesville** — Wolvesville
-- **Zenimax Online Studios** — The Elder Scrolls Online
-- **1047 Games** — SPLITGATE: Arena Reloaded
-- **2K Games** — NBA 2K26
-- **A PLUS JAPAN Inc.** — Blue Protocol: Star Resonance
-- **Artstorm FZE** — Modern Warships
-- **Bad Guitar Studio** — FragPunk
-- **IO Interactive** — HITMAN World of Assassination
+Set `TWITCH_PLATFORMS` to a comma-separated list of platforms:
 
-Example: `TWITCH_OWNERS=Wargaming,Riot Games,Blizzard,Electronic Arts`
+- **steam** — Steam store
+- **gog** — GOG.com
+- **epic** — Epic Games Store
+- **amazon** — Amazon Games
+
+Example: `TWITCH_PLATFORMS=steam,gog,epic`
+
+### Cross-Platform Lookups
+
+Without an `TWITCH_ITAD_KEY`, all drops are included since platform info isn't available from the Twitch API. To enable filtering, get a free API key from [isthereanydeal.com](https://isthereanydeal.com) and set `TWITCH_ITAD_KEY`.
+
+When configured, the service looks up each game on ITAD to determine which stores it's available on, and only includes drops that match your enabled platforms.

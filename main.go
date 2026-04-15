@@ -24,7 +24,7 @@ func main() {
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
 	enableSteam := flag.Bool("steam", envOrBool("ENABLE_STEAM", false), "Enable Steam scraper")
-	twitchOwnersStr := flag.String("twitch-owners", envOr("TWITCH_OWNERS", ""), "Comma-separated Twitch drop owners to include (empty = all disabled)")
+	twitchPlatformsStr := flag.String("twitch-platforms", envOr("TWITCH_PLATFORMS", ""), "Comma-separated Twitch drop platforms to include (steam,gog,epic,amazon)")
 	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", "0 0 0 * * 4"), "Cron schedule (default: every Thursday at midnight)")
 	runOnce := flag.Bool("once", false, "Run once and exit (no cron)")
 	flag.Parse()
@@ -33,15 +33,17 @@ func main() {
 		log.Fatal("DISCORD_WEBHOOK_URL is required")
 	}
 
-	// Build Twitch owner lookup map
+	// Build Twitch platform lookup map
 	var twitchEnabled map[string]bool
-	if strings.TrimSpace(*twitchOwnersStr) != "" {
-		owners := strings.Split(*twitchOwnersStr, ",")
+	if strings.TrimSpace(*twitchPlatformsStr) != "" {
+		platforms := strings.Split(*twitchPlatformsStr, ",")
 		twitchEnabled = make(map[string]bool)
-		for _, o := range owners {
-			twitchEnabled[strings.TrimSpace(o)] = true
+		for _, p := range platforms {
+			twitchEnabled[strings.TrimSpace(strings.ToLower(p))] = true
 		}
 	}
+
+	itadKey := os.Getenv("TWITCH_ITAD_KEY")
 
 	runner := func() {
 		var allGames []common.Game
@@ -68,10 +70,16 @@ func main() {
 			}
 		}
 
-		// Fetch Twitch drops if owners configured
+		// Fetch Twitch drops if platforms configured
 		if len(twitchEnabled) > 0 {
-			twitchClient := twitch.NewClient(twitchEnabled)
-			twitchGames, err := twitchClient.FetchDrops()
+			twitchClient := twitch.NewClient(twitchEnabled, itadKey)
+			var twitchGames []common.Game
+			var err error
+			if itadKey != "" {
+				twitchGames, err = twitchClient.FetchDropsWithPlatformFilter()
+			} else {
+				twitchGames, err = twitchClient.FetchDrops()
+			}
 			if err != nil {
 				log.Printf("Error fetching Twitch drops: %v", err)
 			} else {
