@@ -17,29 +17,33 @@ const (
 	dropsAPI     = "https://twitch-drops-api.sunkwi.com/drops"
 	gameSearchURL = "https://api.isthereanydeal.com/v01/search/?key=%s&q=%s&limit=1"
 	// Platform identifiers used in ITAD API
-	Steam   = "steam"
-	GOG     = "gog"
-	Epic    = "epic"
-	Amazon  = "amazon"
+	Steam  = "steam"
+	GOG    = "gog"
+	Epic   = "epic"
+	Amazon = "amazon"
 )
 
-// Platform stores known to ITAD
+// KnownPlatforms lists platforms supported for filtering
 var KnownPlatforms = []string{Steam, GOG, Epic, Amazon}
 
 type Client struct {
 	enabledPlatforms map[string]bool
-	itadAPIKey      string
-	client          *http.Client
+	itadAPIKey       string
+	client           *http.Client
+	// When true, only include Minecraft drops (cape drops)
+	minecraftOnly bool
 }
 
-// NewClient creates a Twitch drops client with platform filtering.
-// enabledPlatforms is a map of platform name -> enabled (e.g. {"steam": true, "gog": true})
-// itadAPIKey is an optional isthereanydeal.com API key for cross-platform lookups
-func NewClient(enabledPlatforms map[string]bool, itadAPIKey string) *Client {
+// NewClient creates a Twitch drops client.
+// enabledPlatforms is a map of platform name -> enabled (e.g. {"steam": true})
+// itadAPIKey is optional isthereanydeal.com API key for cross-platform lookups
+// minecraftOnly when true filters to Minecraft cape drops only
+func NewClient(enabledPlatforms map[string]bool, itadAPIKey string, minecraftOnly bool) *Client {
 	return &Client{
 		enabledPlatforms: enabledPlatforms,
-		itadAPIKey:       itadAPIKey,
-		client:           &http.Client{Timeout: 30 * time.Second},
+		itadAPIKey:      itadAPIKey,
+		client:          &http.Client{Timeout: 30 * time.Second},
+		minecraftOnly:   minecraftOnly,
 	}
 }
 
@@ -55,16 +59,16 @@ type Drop struct {
 }
 
 type Reward struct {
-	Allow      *Allow   `json:"allow"`
-	Description string   `json:"description"`
-	DetailsURL string   `json:"detailsURL"`
-	Name       string   `json:"name"`
-	Owner      *Owner   `json:"owner"`
+	Allow       *Allow  `json:"allow"`
+	Description string  `json:"description"`
+	DetailsURL  string  `json:"detailsURL"`
+	Name        string  `json:"name"`
+	Owner       *Owner `json:"owner"`
 }
 
 type Allow struct {
-	Channels []Channel `json:"channels"`
-	IsEnabled bool     `json:"isEnabled"`
+	Channels  []Channel `json:"channels"`
+	IsEnabled bool      `json:"isEnabled"`
 }
 
 type Channel struct {
@@ -78,7 +82,7 @@ type Owner struct {
 	Name string `json:"name"`
 }
 
-// FetchDrops fetches active Twitch drops for enabled platforms only.
+// FetchDrops fetches active Twitch drops.
 func (c *Client) FetchDrops() ([]common.Game, error) {
 	resp, err := c.client.Get(dropsAPI)
 	if err != nil {
@@ -121,6 +125,11 @@ func (c *Client) FetchDrops() ([]common.Game, error) {
 			continue
 		}
 
+		// Minecraft-only filter (cape drops)
+		if c.minecraftOnly && !c.isMinecraftDrop(drop) {
+			continue
+		}
+
 		games = append(games, common.Game{
 			Title:       drop.GameDisplayName,
 			Description: dropDescription(drop),
@@ -136,8 +145,7 @@ func (c *Client) FetchDrops() ([]common.Game, error) {
 	return games, nil
 }
 
-// FetchDrops fetches active Twitch drops for enabled platforms only.
-// Uses isthereanydeal.com to determine cross-platform availability.
+// FetchDropsWithPlatformFilter fetches drops and filters by enabled platforms.
 func (c *Client) FetchDropsWithPlatformFilter() ([]common.Game, error) {
 	resp, err := c.client.Get(dropsAPI)
 	if err != nil {
@@ -200,8 +208,19 @@ func (c *Client) FetchDropsWithPlatformFilter() ([]common.Game, error) {
 	return games, nil
 }
 
-// matchesPlatform checks if a game is available on any of the enabled platforms.
-// Uses isthereanydeal.com API if key is configured.
+func (c *Client) isDropActive(drop Drop) bool {
+	for _, r := range drop.Rewards {
+		if r.Allow != nil && r.Allow.IsEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Client) isMinecraftDrop(drop Drop) bool {
+	return strings.Contains(strings.ToLower(drop.GameDisplayName), "minecraft")
+}
+
 func (c *Client) matchesPlatform(gameName string) bool {
 	if len(c.enabledPlatforms) == 0 {
 		return false
@@ -269,50 +288,6 @@ func (c *Client) getGameShops(gameName string) ([]string, error) {
 	return shops, nil
 }
 
-// getGameID gets the ITAD game ID for a title.
-func (c *Client) getGameID(gameName string) (string, error) {
-	searchURL := fmt.Sprintf(gameSearchURL, url.QueryEscape(c.itadAPIKey), url.QueryEscape(gameName))
-	req, err := http.NewRequest("GET", searchURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ITAD returned %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Data []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-
-	if len(result.Data) == 0 {
-		return "", nil
-	}
-	return result.Data[0].ID, nil
-}
-
-func (c *Client) isDropActive(drop Drop) bool {
-	for _, r := range drop.Rewards {
-		if r.Allow != nil && r.Allow.IsEnabled {
-			return true
-		}
-	}
-	return false
-}
-
 func dropDescription(drop Drop) string {
 	if len(drop.Rewards) == 0 {
 		return ""
@@ -334,7 +309,6 @@ func dropOwner(drop Drop) string {
 	return drop.Rewards[0].Owner.Name
 }
 
-// trimWhitespace removes excessive whitespace from a string.
 func trimWhitespace(s string) string {
 	re := regexp.MustCompile(`\s+`)
 	return strings.TrimSpace(re.ReplaceAllString(s, " "))
