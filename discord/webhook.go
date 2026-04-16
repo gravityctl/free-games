@@ -109,7 +109,7 @@ func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[strin
 			Title:       game.Title,
 			Description: truncate(game.Description, 350),
 			Color:       color,
-			URL:         game.DeepLinkURL(),
+			URL:         game.URL,
 			Fields: []embedField{
 				{Name: "Publisher", Value: game.Publisher, Inline: true},
 				{Name: "Provider", Value: EmojiFor(game.Provider, customEmoji) + " " + strings.Title(game.Provider), Inline: true},
