@@ -73,6 +73,9 @@ func main() {
 		customEmojis["twitch"] = e
 	}
 
+	// Base URL for desktop-app redirect (e.g. https://redirect.example.com)
+	redirectBase := os.Getenv("REDIRECT_BASE_URL")
+
 	runner := func(provider string) func() {
 		return func() {
 			var allGames []common.Game
@@ -129,7 +132,7 @@ func main() {
 				return
 			}
 
-			if err := discord.Send(*discordWebhook, allGames, customEmojis); err != nil {
+			if err := discord.Send(*discordWebhook, allGames, customEmojis, redirectBase); err != nil {
 				log.Printf("[%s] error sending Discord notification: %v", provider, err)
 			} else {
 				log.Printf("[%s] notification sent for %d game(s)", provider, len(allGames))

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -49,7 +51,6 @@ const (
 )
 
 // EmojiFor returns the emoji for a provider, using custom emoji if configured.
-// Custom emojis are specified as Discord native format <:name:id> or plain unicode.
 func EmojiFor(provider, customEmoji string) string {
 	if customEmoji != "" {
 		return customEmoji
@@ -67,28 +68,25 @@ func EmojiFor(provider, customEmoji string) string {
 }
 
 // Send delivers a Discord notification for the given games.
-// customEmojis is a map of provider -> emoji string (e.g. "epic" -> "<:epic:123456>")
-func Send(webhookURL string, games []common.Game, customEmojis ...map[string]string) error {
+// customEmojis maps provider -> emoji string (e.g. "epic" -> "<:epic:123456>")
+// redirectBase is optional base URL for desktop-app redirects (e.g. "https://redirect.example.com")
+func Send(webhookURL string, games []common.Game, customEmojis map[string]string, redirectBase string) error {
 	if len(games) == 0 {
 		return nil
 	}
-
-	// Send in batches of maxEmbeds (Discord limit)
 	for i := 0; i < len(games); i += maxEmbeds {
 		end := i + maxEmbeds
 		if end > len(games) {
 			end = len(games)
 		}
-		batch := games[i:end]
-
-		if err := sendBatch(webhookURL, batch, customEmojis...); err != nil {
+		if err := sendBatch(webhookURL, games[i:end], customEmojis, redirectBase); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[string]string) error {
+func sendBatch(webhookURL string, games []common.Game, customEmojis map[string]string, redirectBase string) error {
 	var embs []embed
 	for _, game := range games {
 		color := colorEpic
@@ -99,12 +97,8 @@ func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[strin
 			color = colorTwitch
 		}
 
-		customEmoji := ""
-		if len(customEmojis) > 0 && customEmojis[0] != nil {
-			customEmoji = customEmojis[0][game.Provider]
-		}
+		customEmoji := customEmojis[game.Provider]
 
-		// Use deep link so title opens desktop app (Epic/Steam) instead of web URL
 		e := embed{
 			Title:       game.Title,
 			Description: truncate(game.Description, 350),
@@ -115,6 +109,14 @@ func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[strin
 				{Name: "Provider", Value: EmojiFor(game.Provider, customEmoji) + " " + strings.Title(game.Provider), Inline: true},
 			},
 			Footer: &embedFooter{Text: "Free Games"},
+		}
+
+		// Add "Open in App" link via redirect service
+		if redirectBase != "" {
+			redirectURL := buildRedirectURL(redirectBase, game)
+			if redirectURL != "" {
+				e.Fields = append(e.Fields, embedField{Name: "Open in App", Value: "[Open in App](" + redirectURL + ")", Inline: true})
+			}
 		}
 
 		if !game.StartDate.IsZero() {
@@ -156,6 +158,52 @@ func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[strin
 	}
 
 	return nil
+}
+
+// buildRedirectURL constructs an HTTPS redirect URL for a game's desktop app.
+// Returns empty string if slug extraction fails or redirectBase is not set.
+func buildRedirectURL(redirectBase string, game common.Game) string {
+	slug := ""
+	switch game.Provider {
+	case "epic":
+		slug = epicSlug(game.URL)
+	case "steam":
+		slug = steamAppID(game.URL)
+	case "twitch":
+		slug = twitchSlug(game.URL)
+	}
+	if slug == "" {
+		return ""
+	}
+	base := strings.TrimSuffix(redirectBase, "/")
+	return fmt.Sprintf("%s/%s/%s", base, game.Provider, slug)
+}
+
+var epicSlugRe = regexp.MustCompile(`store\.epicgames\.com/en-US/p/([^/\s]+)`)
+var steamAppRe = regexp.MustCompile(`store\.steampowered\.com/app/(\d+)`)
+
+func epicSlug(webURL string) string {
+	m := epicSlugRe.FindStringSubmatch(webURL)
+	if len(m) >= 2 {
+		return m[1]
+	}
+	return ""
+}
+
+func steamAppID(webURL string) string {
+	m := steamAppRe.FindStringSubmatch(webURL)
+	if len(m) >= 2 {
+		return m[1]
+	}
+	return ""
+}
+
+func twitchSlug(webURL string) string {
+	u, err := url.Parse(webURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(u.Path, "/")
 }
 
 func truncate(s string, max int) string {
