@@ -112,6 +112,7 @@ func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[strin
 			Fields: []embedField{
 				{Name: "Publisher", Value: game.Publisher, Inline: true},
 				{Name: "Provider", Value: EmojiFor(game.Provider, customEmoji) + " " + strings.Title(game.Provider), Inline: true},
+				{Name: "Open in App", Value: "[Open](" + game.DeepLinkURL() + ")", Inline: true},
 			},
 			Footer: &embedFooter{Text: "Free Games"},
 		}
