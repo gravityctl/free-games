@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gravityctl/free-games/common"
@@ -148,12 +149,13 @@ func buildGame(el catalogElement, start, end time.Time) common.Game {
 		}
 	}
 
-	if el.ProductSlug != "" {
+	if el.ProductSlug != "" && !strings.HasSuffix(el.ProductSlug, "/home") {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.ProductSlug)
+	} else if len(el.CatalogNs.Mappings) > 0 {
+		pageSlug := el.CatalogNs.Mappings[0].PageSlug
+		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", pageSlug)
 	} else if el.URLSlug != "" {
 		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.URLSlug)
-	} else if len(el.CatalogNs.Mappings) > 0 {
-		storeURL = fmt.Sprintf("https://store.epicgames.com/en-US/p/%s", el.CatalogNs.Mappings[0].PageSlug)
 	}
 
 	return common.Game{
