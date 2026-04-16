@@ -104,15 +104,15 @@ func sendBatch(webhookURL string, games []common.Game, customEmojis ...map[strin
 			customEmoji = customEmojis[0][game.Provider]
 		}
 
+		// Use deep link so title opens desktop app (Epic/Steam) instead of web URL
 		e := embed{
 			Title:       game.Title,
 			Description: truncate(game.Description, 350),
 			Color:       color,
-			URL:         game.URL,
+			URL:         game.DeepLinkURL(),
 			Fields: []embedField{
 				{Name: "Publisher", Value: game.Publisher, Inline: true},
 				{Name: "Provider", Value: EmojiFor(game.Provider, customEmoji) + " " + strings.Title(game.Provider), Inline: true},
-				{Name: "Open in App", Value: "[Open](" + game.DeepLinkURL() + ")", Inline: true},
 			},
 			Footer: &embedFooter{Text: "Free Games"},
 		}
