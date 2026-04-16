@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -28,19 +30,18 @@ func main() {
 	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", ""), "Legacy cron schedule (used if no per-provider schedule set)")
 	runOnce := flag.Bool("once", false, "Run all enabled scrapers once and exit (no cron)")
 	storePath := flag.String("store", envOr("NOTIFICATION_STORE_PATH", ".free-games-store.json"), "Path to notification deduplication store")
+	serveAddr := flag.String("addr", envOr("ADDR", "0.0.0.0:8080"), "HTTP server address")
 	flag.Parse()
 
 	if *discordWebhook == "" {
 		log.Fatal("DISCORD_WEBHOOK_URL is required")
 	}
 
-	// Load notification store for deduplication
 	notifStore, err := notification.NewNotificationStore(*storePath)
 	if err != nil {
 		log.Printf("Warning: could not open notification store: %v", err)
 	}
 
-	// Build Twitch drops config
 	twitchDropsPlatformsStr := envOr("TWITCH_DROPS_PLATFORMS", "")
 	twitchDropsEnabled := envOrBool("ENABLE_TWITCH_DROPS", false)
 	var twitchEnabled map[string]bool
@@ -51,17 +52,11 @@ func main() {
 			twitchEnabled[strings.TrimSpace(strings.ToLower(p))] = true
 		}
 	} else if twitchDropsEnabled {
-		twitchEnabled = map[string]bool{
-			"steam":  true,
-			"gog":    true,
-			"epic":   true,
-			"amazon": true,
-		}
+		twitchEnabled = map[string]bool{"steam": true, "gog": true, "epic": true, "amazon": true}
 	}
 
 	itadKey := os.Getenv("TWITCH_ITAD_KEY")
 
-	// Custom emojis per provider (Discord native format: <:name:id>)
 	customEmojis := make(map[string]string)
 	if e := os.Getenv("EPIC_EMOJI"); e != "" {
 		customEmojis["epic"] = e
@@ -72,70 +67,94 @@ func main() {
 	if e := os.Getenv("TWITCH_EMOJI"); e != "" {
 		customEmojis["twitch"] = e
 	}
-
-	// Base URL for desktop-app redirect (e.g. https://redirect.example.com)
 	redirectBase := os.Getenv("REDIRECT_BASE_URL")
+
+	mux := http.NewServeMux()
+
+	// Redirect: /<provider>/<slug> -> desktop app deep link
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" || !strings.Contains(path, "/") {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) < 2 {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		provider, slug := parts[0], parts[1]
+		var dest string
+		switch provider {
+		case "epic":
+			dest = "com.epicgames.launcher://store/p/" + slug
+		case "steam":
+			dest = "steam://store/" + slug
+		case "twitch":
+			dest = "twitch://stream/" + slug
+		default:
+			http.Error(w, "unknown provider", http.StatusBadRequest)
+			return
+		}
+		log.Printf("Redirect /%s/%s -> %s", provider, slug, dest)
+		http.Redirect(w, r, dest, http.StatusMovedPermanently)
+	})
+
+	// GET /games — all providers or filtered by ?provider=epic|steam|twitch_drops
+	mux.HandleFunc("/games", func(w http.ResponseWriter, r *http.Request) {
+		filter := r.URL.Query().Get("provider")
+		games := fetchAllGames(filter, *country, *locale, *includeUpcoming, *enableSteam, twitchEnabled, itadKey)
+		writeJSON(w, games)
+	})
+
+	// GET /games/epic
+	mux.HandleFunc("/games/epic", func(w http.ResponseWriter, r *http.Request) {
+		games, _ := epic.NewClient(*country, *locale, *includeUpcoming).FetchFreeGames()
+		writeJSON(w, games)
+	})
+
+	// GET /games/steam
+	mux.HandleFunc("/games/steam", func(w http.ResponseWriter, r *http.Request) {
+		if !*enableSteam {
+			http.Error(w, "steam not enabled", http.StatusServiceUnavailable)
+			return
+		}
+		games, _ := steam.NewScraper().FetchFreeGames()
+		writeJSON(w, games)
+	})
+
+	// GET /games/twitch_drops
+	mux.HandleFunc("/games/twitch_drops", func(w http.ResponseWriter, r *http.Request) {
+		if len(twitchEnabled) == 0 {
+			http.Error(w, "twitch drops not enabled", http.StatusServiceUnavailable)
+			return
+		}
+		games, _ := twitch.NewClient(twitchEnabled, itadKey, true).FetchDrops()
+		writeJSON(w, games)
+	})
 
 	runner := func(provider string) func() {
 		return func() {
-			var allGames []common.Game
-
-			if provider == "epic" {
-				epicClient := epic.NewClient(*country, *locale, *includeUpcoming)
-				epicGames, err := epicClient.FetchFreeGames()
-				if err != nil {
-					log.Printf("[epic] error fetching: %v", err)
-				} else {
-					log.Printf("[epic] found %d free game(s)", len(epicGames))
-					allGames = append(allGames, epicGames...)
-				}
-			}
-
-			if provider == "steam" && *enableSteam {
-				steamScraper := steam.NewScraper()
-				steamGames, err := steamScraper.FetchFreeGames()
-				if err != nil {
-					log.Printf("[steam] error fetching: %v", err)
-				} else {
-					log.Printf("[steam] found %d free game(s)", len(steamGames))
-					allGames = append(allGames, steamGames...)
-				}
-			}
-
-			if provider == "twitch-drops" && len(twitchEnabled) > 0 {
-				twitchClient := twitch.NewClient(twitchEnabled, itadKey, true)
-				twitchGames, err := twitchClient.FetchDrops()
-				if err != nil {
-					log.Printf("[twitch-drops] error fetching: %v", err)
-				} else {
-					log.Printf("[twitch-drops] found %d free game(s)", len(twitchGames))
-					allGames = append(allGames, twitchGames...)
-				}
-			}
-
-			if len(allGames) == 0 {
+			games := fetchProviderGames(provider, *country, *locale, *includeUpcoming, *enableSteam, twitchEnabled, itadKey)
+			if len(games) == 0 {
 				log.Printf("[%s] no free games found", provider)
 				return
 			}
-
-			// Filter out duplicates using notification store (keyed on provider+title)
 			if notifStore != nil {
-				filtered, err := notifStore.FilterNew(allGames)
+				filtered, err := notifStore.FilterNew(games)
 				if err != nil {
 					log.Printf("[%s] warning: store error: %v", provider, err)
 				}
-				allGames = filtered
+				games = filtered
 			}
-
-			if len(allGames) == 0 {
+			if len(games) == 0 {
 				log.Printf("[%s] no new games after deduplication", provider)
 				return
 			}
-
-			if err := discord.Send(*discordWebhook, allGames, customEmojis, redirectBase); err != nil {
+			if err := discord.Send(*discordWebhook, games, customEmojis, redirectBase); err != nil {
 				log.Printf("[%s] error sending Discord notification: %v", provider, err)
 			} else {
-				log.Printf("[%s] notification sent for %d game(s)", provider, len(allGames))
+				log.Printf("[%s] notification sent for %d game(s)", provider, len(games))
 			}
 		}
 	}
@@ -154,7 +173,6 @@ func main() {
 
 	c := cron.New()
 
-	// Epic schedule: default Thursday midnight, overrideable via EPIC_SCHEDULE
 	epicSchedule := envOr("EPIC_SCHEDULE", "0 0 0 * * 4")
 	if *cronSchedule != "" && envOr("EPIC_SCHEDULE", "") == "" {
 		epicSchedule = *cronSchedule
@@ -164,7 +182,6 @@ func main() {
 	}
 	log.Printf("[epic] scheduled: %s", epicSchedule)
 
-	// Steam schedule: default daily at 9am, overrideable via STEAM_SCHEDULE
 	if *enableSteam {
 		steamSchedule := envOr("STEAM_SCHEDULE", "0 0 9 * * *")
 		if _, err := c.AddFunc(steamSchedule, runner("steam")); err != nil {
@@ -173,7 +190,6 @@ func main() {
 		log.Printf("[steam] scheduled: %s", steamSchedule)
 	}
 
-	// Twitch drops schedule: default daily at noon, overrideable via TWITCH_DROPS_SCHEDULE
 	if len(twitchEnabled) > 0 {
 		tdSchedule := envOr("TWITCH_DROPS_SCHEDULE", "0 0 12 * * *")
 		if _, err := c.AddFunc(tdSchedule, runner("twitch-drops")); err != nil {
@@ -182,9 +198,58 @@ func main() {
 		log.Printf("[twitch-drops] scheduled: %s", tdSchedule)
 	}
 
-	log.Println("free-games service started")
+	go func() {
+		log.Printf("Server listening on %s", *serveAddr)
+		log.Fatal(http.ListenAndServe(*serveAddr, mux))
+	}()
+
 	c.Start()
 	<-make(chan struct{})
+}
+
+func fetchProviderGames(provider, country, locale string, includeUpcoming, enableSteam bool, twitchEnabled map[string]bool, itadKey string) []common.Game {
+	switch provider {
+	case "epic":
+		games, _ := epic.NewClient(country, locale, includeUpcoming).FetchFreeGames()
+		return games
+	case "steam":
+		if enableSteam {
+			games, _ := steam.NewScraper().FetchFreeGames()
+			return games
+		}
+	case "twitch-drops":
+		if len(twitchEnabled) > 0 {
+			games, _ := twitch.NewClient(twitchEnabled, itadKey, true).FetchDrops()
+			return games
+		}
+	}
+	return nil
+}
+
+func fetchAllGames(filter, country, locale string, includeUpcoming, enableSteam bool, twitchEnabled map[string]bool, itadKey string) []common.Game {
+	var all []common.Game
+	if filter == "" || filter == "epic" {
+		if games, _ := epic.NewClient(country, locale, includeUpcoming).FetchFreeGames(); len(games) > 0 {
+			all = append(all, games...)
+		}
+	}
+	if (filter == "" || filter == "steam") && enableSteam {
+		if games, _ := steam.NewScraper().FetchFreeGames(); len(games) > 0 {
+			all = append(all, games...)
+		}
+	}
+	if (filter == "" || filter == "twitch_drops") && len(twitchEnabled) > 0 {
+		if games, _ := twitch.NewClient(twitchEnabled, itadKey, true).FetchDrops(); len(games) > 0 {
+			all = append(all, games...)
+		}
+	}
+	return all
+}
+
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(v)
 }
 
 func envOr(key, defaultVal string) string {
