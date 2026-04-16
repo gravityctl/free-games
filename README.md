@@ -69,6 +69,23 @@ Example: `TWITCH_DROPS_PLATFORMS=steam,gog,epic`
 
 Without `TWITCH_ITAD_KEY`, all drops are included since platform info isn't available from the Twitch API alone. To enable filtering, get a free API key from [isthereanydeal.com](https://isthereanydeal.com) and set `TWITCH_ITAD_KEY`.
 
+## Docker
+
+```bash
+# Build and run
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+```
+
+The notification store (`.free-games-store.json`) is persisted in a named volume (`free-games_store`) and survives restarts.
+
+The Docker image exposes port `8080` for the HTTP API and redirect handler.
+
 ## Scheduling
 
 Each provider can have its own cron schedule:
