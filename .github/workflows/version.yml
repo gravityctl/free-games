@@ -8,8 +8,7 @@ on:
 jobs:
   bump-version:
     runs-on: ubuntu-latest
-    # Only run on merge commits (PR merges), not tag pushes or other commits
-    if: "github.event.commits[0].message =~ '^Merge pull request'"
+    if: startsWith(github.event.commits[0].message, 'Merge pull request')
     outputs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
     permissions:
@@ -43,7 +42,6 @@ jobs:
           echo "Latest tag: ${TAGS[0]:-none}"
           echo "New tag: $NEW_TAG"
           echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
-          echo "Bumping $LATEST -> $NEW_TAG"
 
       - name: Create and push new tag
         run: |
