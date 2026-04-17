@@ -158,7 +158,9 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 		return nil, nil
 	}
 
-	var result struct {
+	// Steam API returns {"appid": {"success": true, "data": {...}}}
+	// not {"success": true, "data": {...}}
+	var result map[string]struct {
 		Success bool `json:"success"`
 		Data    struct {
 			Type        string `json:"type"`
@@ -177,31 +179,32 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 		return nil, nil
 	}
 
-	if !result.Success {
+	// result is keyed by appid string
+	appResult, ok := result[fmt.Sprintf("%d", appID)]
+	if !ok {
+		return nil, nil
+	}
+	if !appResult.Success {
 		return nil, nil
 	}
 
 	// Only include games (not DLC, demos, etc.)
-	if result.Data.Type != "game" {
+	if appResult.Data.Type != "game" {
 		return nil, nil
 	}
 
-	// Include if:
-	// 1. is_free=true AND has a price (initial > 0) — paid game temporarily free
-	// 2. is_free=true AND no price (initial = 0 or absent) — permanently free game
-	// The HTML already filtered to is_free=true via data-price-final=0
-	// API double-checks: is_free=true is required
-	if !result.Data.IsFree {
+	// Include if is_free=true (covers both permanently free and paid→free transitions)
+	if !appResult.Data.IsFree {
 		return nil, nil
 	}
 
-	title := result.Data.Name
+	title := appResult.Data.Name
 	if title == "" {
 		title = fallbackTitle
 	}
 	return &common.Game{
 		Title:    title,
-		ImageURL: result.Data.HeaderImage,
+		ImageURL: appResult.Data.HeaderImage,
 		URL:      fmt.Sprintf("https://store.steampowered.com/app/%d/", appID),
 		Provider: "steam",
 	}, nil
