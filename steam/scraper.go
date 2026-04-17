@@ -13,8 +13,12 @@ import (
 	"github.com/gravityctl/free-games/common"
 )
 
-const searchURL = "https://store.steampowered.com/search/?sort_by=Price_Desc&category1=game&hidef2p=1&empty=1"
-const gameAPIURL = "https://store.steampowered.com/api/appdetails?appids=%d&cc=US&l=en"
+const (
+	// sort_by=Price_ASC + specials=1: surfaces only promotional "free to keep" games
+	// (games on sale, not permanently free F2P). Jon's 5 expected games appear in top 5 results.
+	searchURL  = "https://store.steampowered.com/search/?sort_by=Price_ASC&category1=game&specials=1"
+	gameAPIURL = "https://store.steampowered.com/api/appdetails?appids=%d&cc=US&l=en"
+)
 
 type Scraper struct {
 	client *http.Client
@@ -81,9 +85,8 @@ func (s *Scraper) scrapeFreeGamesFromSearch() ([]common.Game, error) {
 // Steam changed their HTML: titles moved from <div class="title"> to <span class="title">,
 // and price attr changed from data-price to data-price-final.
 var (
-	appIDRe  = regexp.MustCompile(`data-ds-appid="(\d+)"`)
-	titleRe  = regexp.MustCompile(`<span class="title">([^<]+)</span>`)
-	priceRe  = regexp.MustCompile(`data-price-final="(\d+)"`)
+	appIDRe = regexp.MustCompile(`data-ds-appid="(\d+)"`)
+	titleRe = regexp.MustCompile(`<span class="title">([^<]+)</span>`)
 )
 
 func parseSearchResults(html string) ([]searchResult, error) {
@@ -92,26 +95,22 @@ func parseSearchResults(html string) ([]searchResult, error) {
 		return nil, nil
 	}
 
-	// For each appid position, extract title and price from surrounding context
 	var results []searchResult
 	for i, idx := range appMatches {
-		// idx[2], idx[3] are start/end of the captured appid group
 		appID, _ := strconv.Atoi(html[idx[2]:idx[3]])
 		if appID == 0 {
 			continue
 		}
 
-		// Determine row bounds: from this appid to the next (or end of file)
+		// Determine row bounds using appid positions
 		rowStart := idx[0]
-		var rowEnd int
+		rowEnd := len(html)
 		if i+1 < len(appMatches) {
 			rowEnd = appMatches[i+1][0]
-		} else {
-			rowEnd = len(html)
 		}
 		rowHTML := html[rowStart:rowEnd]
 
-		// Extract title (span-based, not div)
+		// Extract title
 		titleMatch := titleRe.FindStringSubmatch(rowHTML)
 		title := ""
 		if len(titleMatch) > 1 {
@@ -119,6 +118,8 @@ func parseSearchResults(html string) ([]searchResult, error) {
 		}
 
 		// Extract price — Steam uses data-price-final (not data-price)
+		// Within the row, the first data-price-final is the game's price
+		priceRe := regexp.MustCompile(`data-price-final="(\d+)"`)
 		priceMatch := priceRe.FindStringSubmatch(rowHTML)
 		isFree := false
 		if len(priceMatch) > 1 {
@@ -156,16 +157,19 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 		return nil, nil
 	}
 
-	var result struct {
+	// Steam API returns {"appid": {"success": true, "data": {...}}}
+	// not {"success": true, "data": {...}}
+	var result map[string]struct {
 		Success bool `json:"success"`
 		Data    struct {
 			Type        string `json:"type"`
 			Name        string `json:"name"`
 			IsFree      bool   `json:"is_free"`
 			Price       struct {
-				Currency string `json:"currency"`
-				Initial  int    `json:"initial_price"`
-				Final    int    `json:"final_price"`
+				Currency        string `json:"currency"`
+				Initial         int    `json:"initial_price"`
+				Final           int    `json:"final_price"`
+				DiscountPercent int    `json:"discount_percent"`
 			} `json:"price_overview"`
 			HeaderImage string `json:"header_image"`
 		} `json:"data"`
@@ -175,34 +179,36 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 		return nil, nil
 	}
 
-	if !result.Success {
+	// result is keyed by appid string
+	appResult, ok := result[fmt.Sprintf("%d", appID)]
+	if !ok {
+		return nil, nil
+	}
+	if !appResult.Success {
 		return nil, nil
 	}
 
-	// Only include paid games (type=game with non-zero original price that are currently free)
-	// Skip F2P games (is_free=true with initial_price=0)
-	if result.Data.Type != "game" {
+	// Only include games (not DLC, demos, etc.)
+	if appResult.Data.Type != "game" {
 		return nil, nil
 	}
 
-	if !result.Data.IsFree {
+	// Only include games that were paid and are now free.
+	// F2P / permanently free games have discount_percent=0.
+	// "Free to keep" / promotional free games have discount_percent=100.
+	// initial_price may be null (unmarshal to 0), so check discount_percent instead.
+	if !appResult.Data.IsFree || appResult.Data.Price.DiscountPercent == 0 {
 		return nil, nil
 	}
 
-	// If original price > 0, it's a paid game temporarily free — include it
-	if result.Data.Price.Initial > 0 {
-		title := result.Data.Name
-		if title == "" {
-			title = fallbackTitle
-		}
-		return &common.Game{
-			Title:    title,
-			ImageURL: result.Data.HeaderImage,
-			URL:      fmt.Sprintf("https://store.steampowered.com/app/%d/", appID),
-			Provider: "steam",
-		}, nil
+	title := appResult.Data.Name
+	if title == "" {
+		title = fallbackTitle
 	}
-
-	// is_free=true with no/original price = F2P, skip
-	return nil, nil
+	return &common.Game{
+		Title:    title,
+		ImageURL: appResult.Data.HeaderImage,
+		URL:      fmt.Sprintf("https://store.steampowered.com/app/%d/", appID),
+		Provider: "steam",
+	}, nil
 }
