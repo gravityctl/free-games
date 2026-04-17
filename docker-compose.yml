@@ -1,0 +1,31 @@
+services:
+  free-games:
+    image: gravityctl/free-games:latest
+    container_name: free-games
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:?DISCORD_WEBHOOK_URL is required}
+      - ENABLE_STEAM=${ENABLE_STEAM:-false}
+      - ENABLE_TWITCH_DROPS=${ENABLE_TWITCH_DROPS:-false}
+      - TWITCH_DROPS_PLATFORMS=${TWITCH_DROPS_PLATFORMS:-}
+      - TWITCH_ITAD_KEY=${TWITCH_ITAD_KEY:-}
+      - EPIC_COUNTRY=${EPIC_COUNTRY:-US}
+      - EPIC_LOCALE=${EPIC_LOCALE:-en-US}
+      - EPIC_INCLUDE_UPCOMING=${EPIC_INCLUDE_UPCOMING:-false}
+      - EPIC_SCHEDULE=${EPIC_SCHEDULE:-0 0 0 * * 4}
+      - STEAM_SCHEDULE=${STEAM_SCHEDULE:-0 0 9 * * *}
+      - TWITCH_DROPS_SCHEDULE=${TWITCH_DROPS_SCHEDULE:-0 0 12 * * *}
+      - REDIRECT_BASE_URL=${REDIRECT_BASE_URL:-}
+      - ADDR=${ADDR:-0.0.0.0:8080}
+      - NOTIFICATION_STORE_PATH=/data/.free-games-store.json
+    volumes:
+      - free-games-store:/data
+    restart: unless-stopped
+
+volumes:
+  free-games-store:
+    driver: local

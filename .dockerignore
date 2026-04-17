@@ -1,0 +1,7 @@
+.git
+.gitignore
+.env
+*.md
+!README.md
+*.sum.rej
+free-games-store.json
