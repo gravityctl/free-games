@@ -8,7 +8,6 @@ on:
 jobs:
   bump-version:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.commits[0].message, 'Merge pull request')
     outputs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
     permissions:
