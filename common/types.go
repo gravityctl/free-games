@@ -38,7 +38,8 @@ func epicDeepLink(webURL string) string {
 	if len(m) < 2 {
 		return webURL
 	}
-	return "com.epicgames.launcher://apps/" + m[1] + "?action=open&list=games"
+	// Use store/product/{slug} format — the correct Epic launcher deep link
+	return "com.epicgames.launcher://store/product/" + m[1]
 }
 
 var steamAppRe = regexp.MustCompile(`store\.steampowered\.com/app/(\d+)`)
