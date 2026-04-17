@@ -7,14 +7,15 @@ import (
 
 // Game represents a free game from any provider.
 type Game struct {
-	Title       string
-	Description string
-	ImageURL    string
-	URL         string
-	Publisher   string
-	StartDate   time.Time
-	EndDate     time.Time
-	Provider    string // "epic", "steam", or "twitch"
+	Title         string
+	Description   string
+	ImageURL      string
+	URL           string
+	Publisher     string
+	OriginalPrice string
+	StartDate     time.Time
+	EndDate       time.Time
+	Provider      string // "epic", "steam", or "twitch"
 }
 
 // DeepLinkURL returns an app-specific URL to open the game in the provider's desktop app.

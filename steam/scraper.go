@@ -162,14 +162,17 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 	var result map[string]struct {
 		Success bool `json:"success"`
 		Data    struct {
-			Type        string `json:"type"`
-			Name        string `json:"name"`
-			IsFree      bool   `json:"is_free"`
+			Type        string   `json:"type"`
+			Name        string   `json:"name"`
+			IsFree      bool     `json:"is_free"`
+			Publishers  []string `json:"publishers"`
 			Price       struct {
 				Currency        string `json:"currency"`
 				Initial         int    `json:"initial_price"`
 				Final           int    `json:"final_price"`
 				DiscountPercent int    `json:"discount_percent"`
+				InitialFormatted string `json:"initial_formatted"`
+				FinalFormatted  string `json:"final_formatted"`
 			} `json:"price_overview"`
 			HeaderImage string `json:"header_image"`
 		} `json:"data"`
@@ -205,10 +208,17 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 	if title == "" {
 		title = fallbackTitle
 	}
+	publisher := ""
+	if len(appResult.Data.Publishers) > 0 {
+		publisher = appResult.Data.Publishers[0]
+	}
+	originalPrice := appResult.Data.Price.InitialFormatted
 	return &common.Game{
-		Title:    title,
-		ImageURL: appResult.Data.HeaderImage,
-		URL:      fmt.Sprintf("https://store.steampowered.com/app/%d/", appID),
-		Provider: "steam",
+		Title:         title,
+		ImageURL:      appResult.Data.HeaderImage,
+		URL:           fmt.Sprintf("https://store.steampowered.com/app/%d/", appID),
+		Provider:      "steam",
+		Publisher:     publisher,
+		OriginalPrice: originalPrice,
 	}, nil
 }
