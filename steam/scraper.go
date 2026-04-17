@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	// sort_by=Price_ASC: free games appear at the top (before the 50-result cutoff)
-	// hidef2p=1 removed: it filters out ALL free games, not just F2P
-	// empty=1 removed: it filters out free/no-price games
-	searchURL  = "https://store.steampowered.com/search/?sort_by=Price_ASC&category1=game"
+	// sort_by=Price_ASC + specials=1: surfaces only promotional "free to keep" games
+	// (games on sale, not permanently free F2P). Jon's 5 expected games appear in top 5 results.
+	searchURL  = "https://store.steampowered.com/search/?sort_by=Price_ASC&category1=game&specials=1"
 	gameAPIURL = "https://store.steampowered.com/api/appdetails?appids=%d&cc=US&l=en"
 )
 
