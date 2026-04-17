@@ -1,0 +1,51 @@
+name: Bump Version on Merge to Main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    # Only run on merge commits (PR merges), not tag pushes or other commits
+    if: "github.event.commits[0].message =~ '^Merge pull request'"
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version
+        id: bump
+        run: |
+          set -e
+          
+          # Get all tags, sorted by version (descending)
+          mapfile -t TAGS < <(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          
+          if [ ${#TAGS[@]} -eq 0 ]; then
+            NEW_TAG="v0.0.1"
+          else
+            LATEST="${TAGS[0]}"
+            # Strip 'v' prefix
+            VER="${LATEST#v}"
+            # Split into major.minor.patch
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VER"
+            PATCH=$((PATCH + 1))
+            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          
+          echo "Latest tag: ${TAGS[0]:-none}"
+          echo "New tag: $NEW_TAG"
+          echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "Bumping $LATEST -> $NEW_TAG"
+
+      - name: Create and push new tag
+        run: |
+          git tag ${{ steps.bump.outputs.new_tag }}
+          git push origin ${{ steps.bump.outputs.new_tag }}
