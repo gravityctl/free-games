@@ -167,9 +167,10 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 			Name        string `json:"name"`
 			IsFree      bool   `json:"is_free"`
 			Price       struct {
-				Currency string `json:"currency"`
-				Initial  int    `json:"initial_price"`
-				Final    int    `json:"final_price"`
+				Currency        string `json:"currency"`
+				Initial         int    `json:"initial_price"`
+				Final           int    `json:"final_price"`
+				DiscountPercent int    `json:"discount_percent"`
 			} `json:"price_overview"`
 			HeaderImage string `json:"header_image"`
 		} `json:"data"`
@@ -193,8 +194,11 @@ func (s *Scraper) fetchGameDetails(appID int, fallbackTitle string) (*common.Gam
 		return nil, nil
 	}
 
-	// Include if is_free=true (covers both permanently free and paid→free transitions)
-	if !appResult.Data.IsFree {
+	// Only include games that were paid and are now free.
+	// F2P / permanently free games have discount_percent=0.
+	// "Free to keep" / promotional free games have discount_percent=100.
+	// initial_price may be null (unmarshal to 0), so check discount_percent instead.
+	if !appResult.Data.IsFree || appResult.Data.Price.DiscountPercent == 0 {
 		return nil, nil
 	}
 
