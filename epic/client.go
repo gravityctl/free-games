@@ -51,6 +51,14 @@ type catalogElement struct {
 			} `json:"promotionalOffers"`
 		} `json:"upcomingPromotionalOffers"`
 	} `json:"promotions"`
+	Price struct {
+		TotalPrice struct {
+			FmtPrice struct {
+				OriginalPrice  string `json:"originalPrice"`
+				DiscountPrice string `json:"discountPrice"`
+			} `json:"fmtPrice"`
+		} `json:"totalPrice"`
+	} `json:"price"`
 }
 
 type restResponse struct {
@@ -159,13 +167,14 @@ func buildGame(el catalogElement, start, end time.Time) common.Game {
 	}
 
 	return common.Game{
-		Title:       el.Title,
-		Description: el.Description,
-		ImageURL:    imageURL,
-		URL:         storeURL,
-		Publisher:   el.Seller.Name,
-		StartDate:   start,
-		EndDate:     end,
-		Provider:    "epic",
+		Title:         el.Title,
+		Description:   el.Description,
+		ImageURL:      imageURL,
+		URL:           storeURL,
+		Publisher:     el.Seller.Name,
+		OriginalPrice: el.Price.TotalPrice.FmtPrice.OriginalPrice,
+		StartDate:     start,
+		EndDate:       end,
+		Provider:      "epic",
 	}
 }
