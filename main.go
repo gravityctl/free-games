@@ -87,7 +87,7 @@ func main() {
 		var dest string
 		switch provider {
 		case "epic":
-			dest = "com.epicgames.launcher://apps/" + slug
+			dest = "com.epicgames.launcher://store/p/" + slug
 		case "steam":
 			dest = "steam://store/" + slug
 		case "twitch":
