@@ -36,24 +36,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine version tags
+        id: version
+        run: |
+          # Get version from workflow_dispatch input, or from git tag ref
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="{{ github.ref_name }}"
+          fi
+          # Strip leading 'v' if present
+          VERSION="${VERSION#v}"
+          MAJOR_MINOR="${VERSION%.*}"
+          SHA_TAG="${VERSION}-$(echo ${{ github.sha }} | cut -c1-8)"
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "major_minor=v${MAJOR_MINOR}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=latest" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},from=${{ github.event.inputs.version || github.ref_name }}
-            type=semver,pattern={{major}}.{{minor}},from=${{ github.event.inputs.version || github.ref_name }}
-            type=sha,prefix=,from=${{ github.event.inputs.version || github.ref_name }}
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.major_minor }}
+            type=raw,value=${{ steps.version.outputs.sha_tag }}
+            type=raw,value=${{ steps.version.outputs.latest_tag }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
