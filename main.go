@@ -22,7 +22,7 @@ import (
 func main() {
 	godotenv.Load()
 
-	discordWebhook := flag.String("discord-webhook", envOr("DISCORD_WEBHOOK_URL", ""), "Discord webhook URL")
+	discordWebhooks := flag.String("discord-webhook", envOr("DISCORD_WEBHOOK_URL", ""), "Comma-separated Discord webhook URL(s)")
 	country := flag.String("country", envOr("EPIC_COUNTRY", "US"), "Epic store country code")
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
@@ -33,7 +33,8 @@ func main() {
 	serveAddr := flag.String("addr", envOr("ADDR", "0.0.0.0:8080"), "HTTP server address")
 	flag.Parse()
 
-	if *discordWebhook == "" {
+	webhookList := parseWebhooks(*discordWebhooks)
+	if len(webhookList) == 0 {
 		log.Fatal("DISCORD_WEBHOOK_URL is required")
 	}
 
@@ -151,11 +152,7 @@ func main() {
 				log.Printf("[%s] no new games after deduplication", provider)
 				return
 			}
-			if err := discord.Send(*discordWebhook, games, customEmojis, redirectBase); err != nil {
-				log.Printf("[%s] error sending Discord notification: %v", provider, err)
-			} else {
-				log.Printf("[%s] notification sent for %d game(s)", provider, len(games))
-			}
+			discord.SendAll(webhookList, games, customEmojis, redirectBase)
 		}
 	}
 
@@ -266,4 +263,17 @@ func envOrBool(key string, defaultVal bool) bool {
 		}
 	}
 	return defaultVal
+}
+
+// parseWebhooks splits a comma-separated string of webhook URLs into a slice.
+// Empty strings are filtered out.
+func parseWebhooks(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

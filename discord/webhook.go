@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -67,11 +68,11 @@ func EmojiFor(provider, customEmoji string) string {
 	}
 }
 
-// Send delivers a Discord notification for the given games.
+// Send delivers a Discord notification for the given games to a single webhook URL.
 // customEmojis maps provider -> emoji string (e.g. "epic" -> "<:epic:123456>")
 // redirectBase is optional base URL for desktop-app redirects (e.g. "https://redirect.example.com")
 func Send(webhookURL string, games []common.Game, customEmojis map[string]string, redirectBase string) error {
-	if len(games) == 0 {
+	if webhookURL == "" || len(games) == 0 {
 		return nil
 	}
 	for i := 0; i < len(games); i += maxEmbeds {
@@ -84,6 +85,32 @@ func Send(webhookURL string, games []common.Game, customEmojis map[string]string
 		}
 	}
 	return nil
+}
+
+// SendAll delivers a Discord notification to multiple webhook URLs.
+// Each URL receives the same game list. Errors are logged per-URL but do not
+// stop delivery to remaining URLs.
+func SendAll(webhookURLs []string, games []common.Game, customEmojis map[string]string, redirectBase string) {
+	if len(games) == 0 || len(webhookURLs) == 0 {
+		return
+	}
+	for _, url := range webhookURLs {
+		url := url // capture loop variable
+		if err := Send(url, games, customEmojis, redirectBase); err != nil {
+			log.Printf("[discord] webhook delivery failed for %s: %v", stripWebhookToken(url), err)
+		}
+	}
+}
+
+// stripWebhookToken returns the webhook URL with its token portion redacted for logging.
+func stripWebhookToken(rawURL string) string {
+	parts := strings.Split(rawURL, "/")
+	if len(parts) < 2 {
+		return rawURL
+	}
+	// Replace the last two path segments (webhook ID and token) with "***"
+	n := len(parts)
+	return strings.Join(append(parts[:n-2], "***", "***"), "/")
 }
 
 func sendBatch(webhookURL string, games []common.Game, customEmojis map[string]string, redirectBase string) error {
