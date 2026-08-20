@@ -31,7 +31,9 @@ func (g *Game) DeepLinkURL() string {
 	}
 }
 
-var epicSlugRe = regexp.MustCompile(`store\.epicgames\.com/en-US/p/([^/\s]+)`)
+// Matches product pages in any locale. Bundle pages are deliberately excluded:
+// the launcher has no equivalent deep link, so those fall back to the web URL.
+var epicSlugRe = regexp.MustCompile(`store\.epicgames\.com/[^/]+/p/([^/?#\s]+)`)
 
 func epicDeepLink(webURL string) string {
 	m := epicSlugRe.FindStringSubmatch(webURL)

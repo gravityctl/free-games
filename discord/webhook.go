@@ -89,17 +89,22 @@ func Send(webhookURL string, games []common.Game, customEmojis map[string]string
 
 // SendAll delivers a Discord notification to multiple webhook URLs.
 // Each URL receives the same game list. Errors are logged per-URL but do not
-// stop delivery to remaining URLs.
-func SendAll(webhookURLs []string, games []common.Game, customEmojis map[string]string, redirectBase string) {
+// stop delivery to remaining URLs. It returns the number of webhooks that
+// accepted the message, so callers can avoid marking games as notified when
+// nothing was actually delivered.
+func SendAll(webhookURLs []string, games []common.Game, customEmojis map[string]string, redirectBase string) int {
 	if len(games) == 0 || len(webhookURLs) == 0 {
-		return
+		return 0
 	}
+	delivered := 0
 	for _, url := range webhookURLs {
-		url := url // capture loop variable
 		if err := Send(url, games, customEmojis, redirectBase); err != nil {
 			log.Printf("[discord] webhook delivery failed for %s: %v", stripWebhookToken(url), err)
+			continue
 		}
+		delivered++
 	}
+	return delivered
 }
 
 // stripWebhookToken returns the webhook URL with its token portion redacted for logging.
@@ -207,7 +212,9 @@ func buildRedirectURL(redirectBase string, game common.Game) string {
 	return fmt.Sprintf("%s/%s/%s", base, game.Provider, slug)
 }
 
-var epicSlugRe = regexp.MustCompile(`store\.epicgames\.com/en-US/p/([^/\s]+)`)
+// Matches product pages in any locale. Bundle pages are deliberately excluded:
+// the launcher has no equivalent deep link, so those fall back to the web URL.
+var epicSlugRe = regexp.MustCompile(`store\.epicgames\.com/[^/]+/p/([^/?#\s]+)`)
 var steamAppRe = regexp.MustCompile(`store\.steampowered\.com/app/(\d+)`)
 
 func epicSlug(webURL string) string {

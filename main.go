@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gravityctl/free-games/common"
 	"github.com/gravityctl/free-games/discord"
@@ -27,6 +28,8 @@ func main() {
 	locale := flag.String("locale", envOr("EPIC_LOCALE", "en-US"), "Epic store locale")
 	includeUpcoming := flag.Bool("include-upcoming", envOrBool("EPIC_INCLUDE_UPCOMING", false), "Include upcoming free games")
 	enableSteam := flag.Bool("steam", envOrBool("ENABLE_STEAM", false), "Enable Steam scraper")
+	steamCountry := flag.String("steam-country", envOr("STEAM_COUNTRY", "US"), "Steam store country code")
+	steamLocale := flag.String("steam-locale", envOr("STEAM_LOCALE", "en"), "Steam store language")
 	cronSchedule := flag.String("schedule", envOr("CHECK_SCHEDULE", ""), "Legacy cron schedule (used if no per-provider schedule set)")
 	runOnce := flag.Bool("once", false, "Run all enabled scrapers once and exit (no cron)")
 	storePath := flag.String("store", envOr("NOTIFICATION_STORE_PATH", ".free-games-store.json"), "Path to notification deduplication store")
@@ -41,6 +44,11 @@ func main() {
 	notifStore, err := notification.NewNotificationStore(*storePath)
 	if err != nil {
 		log.Printf("Warning: could not open notification store: %v", err)
+	}
+	if notifStore != nil {
+		if d, err := time.ParseDuration(envOr("NOTIFICATION_RENOTIFY_AFTER", "")); err == nil {
+			notifStore.SetRenotifyAfter(d)
+		}
 	}
 
 	twitchDropsPlatformsStr := envOr("TWITCH_DROPS_PLATFORMS", "")
@@ -101,16 +109,29 @@ func main() {
 		http.Redirect(w, r, dest, http.StatusMovedPermanently)
 	})
 
+	cfg := providerConfig{
+		country:         *country,
+		locale:          *locale,
+		includeUpcoming: *includeUpcoming,
+		enableSteam:     *enableSteam,
+		steamCountry:    *steamCountry,
+		steamLocale:     *steamLocale,
+		twitchEnabled:   twitchEnabled,
+		itadKey:         itadKey,
+	}
+
 	// GET /games — all providers or filtered by ?provider=epic|steam|twitch_drops
 	mux.HandleFunc("/games", func(w http.ResponseWriter, r *http.Request) {
 		filter := r.URL.Query().Get("provider")
-		games := fetchAllGames(filter, *country, *locale, *includeUpcoming, *enableSteam, twitchEnabled, itadKey)
-		writeJSON(w, games)
+		writeJSON(w, fetchAllGames(filter, cfg))
 	})
 
 	// GET /games/epic
 	mux.HandleFunc("/games/epic", func(w http.ResponseWriter, r *http.Request) {
-		games, _ := epic.NewClient(*country, *locale, *includeUpcoming).FetchFreeGames()
+		games, err := fetchProviderGames("epic", cfg)
+		if err != nil {
+			log.Printf("[epic] fetch failed: %v", err)
+		}
 		writeJSON(w, games)
 	})
 
@@ -120,7 +141,10 @@ func main() {
 			http.Error(w, "steam not enabled", http.StatusServiceUnavailable)
 			return
 		}
-		games, _ := steam.NewScraper().FetchFreeGames()
+		games, err := fetchProviderGames("steam", cfg)
+		if err != nil {
+			log.Printf("[steam] fetch failed: %v", err)
+		}
 		writeJSON(w, games)
 	})
 
@@ -130,13 +154,22 @@ func main() {
 			http.Error(w, "twitch drops not enabled", http.StatusServiceUnavailable)
 			return
 		}
-		games, _ := twitch.NewClient(twitchEnabled, itadKey, true).FetchDrops()
+		games, err := fetchProviderGames("twitch-drops", cfg)
+		if err != nil {
+			log.Printf("[twitch-drops] fetch failed: %v", err)
+		}
 		writeJSON(w, games)
 	})
 
 	runner := func(provider string) func() {
 		return func() {
-			games := fetchProviderGames(provider, *country, *locale, *includeUpcoming, *enableSteam, twitchEnabled, itadKey)
+			games, err := fetchProviderGames(provider, cfg)
+			// A failed fetch is not the same as "nothing is free" — say so, or a
+			// broken scraper looks like a quiet week.
+			if err != nil {
+				log.Printf("[%s] fetch failed: %v", provider, err)
+				return
+			}
 			if len(games) == 0 {
 				log.Printf("[%s] no free games found", provider)
 				return
@@ -152,7 +185,17 @@ func main() {
 				log.Printf("[%s] no new games after deduplication", provider)
 				return
 			}
-			discord.SendAll(webhookList, games, customEmojis, redirectBase)
+			// Only record games once a webhook has accepted them, so a failed
+			// delivery is retried on the next run rather than lost.
+			if delivered := discord.SendAll(webhookList, games, customEmojis, redirectBase); delivered > 0 {
+				if notifStore != nil {
+					if err := notifStore.Record(games); err != nil {
+						log.Printf("[%s] warning: could not record sent games: %v", provider, err)
+					}
+				}
+			} else {
+				log.Printf("[%s] delivery failed for all webhooks; will retry next run", provider)
+			}
 		}
 	}
 
@@ -204,41 +247,52 @@ func main() {
 	<-make(chan struct{})
 }
 
-func fetchProviderGames(provider, country, locale string, includeUpcoming, enableSteam bool, twitchEnabled map[string]bool, itadKey string) []common.Game {
-	switch provider {
-	case "epic":
-		games, _ := epic.NewClient(country, locale, includeUpcoming).FetchFreeGames()
-		return games
-	case "steam":
-		if enableSteam {
-			games, _ := steam.NewScraper().FetchFreeGames()
-			return games
-		}
-	case "twitch-drops":
-		if len(twitchEnabled) > 0 {
-			games, _ := twitch.NewClient(twitchEnabled, itadKey, true).FetchDrops()
-			return games
-		}
-	}
-	return nil
+// providerConfig holds the per-provider settings resolved from flags and env.
+type providerConfig struct {
+	country         string
+	locale          string
+	includeUpcoming bool
+	enableSteam     bool
+	steamCountry    string
+	steamLocale     string
+	twitchEnabled   map[string]bool
+	itadKey         string
 }
 
-func fetchAllGames(filter, country, locale string, includeUpcoming, enableSteam bool, twitchEnabled map[string]bool, itadKey string) []common.Game {
+func fetchProviderGames(provider string, cfg providerConfig) ([]common.Game, error) {
+	switch provider {
+	case "epic":
+		return epic.NewClient(cfg.country, cfg.locale, cfg.includeUpcoming).FetchFreeGames()
+	case "steam":
+		if cfg.enableSteam {
+			return steam.NewScraperFor(cfg.steamCountry, cfg.steamLocale).FetchFreeGames()
+		}
+	case "twitch-drops":
+		if len(cfg.twitchEnabled) > 0 {
+			return twitch.NewClient(cfg.twitchEnabled, cfg.itadKey, true).FetchDrops()
+		}
+	}
+	return nil, nil
+}
+
+func fetchAllGames(filter string, cfg providerConfig) []common.Game {
+	providers := []struct{ filterName, provider string }{
+		{"epic", "epic"},
+		{"steam", "steam"},
+		{"twitch_drops", "twitch-drops"},
+	}
+
 	var all []common.Game
-	if filter == "" || filter == "epic" {
-		if games, _ := epic.NewClient(country, locale, includeUpcoming).FetchFreeGames(); len(games) > 0 {
-			all = append(all, games...)
+	for _, p := range providers {
+		if filter != "" && filter != p.filterName {
+			continue
 		}
-	}
-	if (filter == "" || filter == "steam") && enableSteam {
-		if games, _ := steam.NewScraper().FetchFreeGames(); len(games) > 0 {
-			all = append(all, games...)
+		games, err := fetchProviderGames(p.provider, cfg)
+		if err != nil {
+			log.Printf("[%s] fetch failed: %v", p.provider, err)
+			continue
 		}
-	}
-	if (filter == "" || filter == "twitch_drops") && len(twitchEnabled) > 0 {
-		if games, _ := twitch.NewClient(twitchEnabled, itadKey, true).FetchDrops(); len(games) > 0 {
-			all = append(all, games...)
-		}
+		all = append(all, games...)
 	}
 	return all
 }
